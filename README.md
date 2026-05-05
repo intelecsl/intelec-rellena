@@ -1,4 +1,4 @@
-# Intelec — Rellena Formularios v1.0
+# Intelec — Rellena Formularios v1.2
 
 Complemento de Outlook que detecta adjuntos (DOCX, XLSX, PDF), los analiza con IA (Claude), rellena automáticamente los campos con los datos de INTELEC S.L. y permite descargar el resultado en PDF.
 
