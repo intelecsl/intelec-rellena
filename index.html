@@ -5,7 +5,6 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
 <title>Intelec Rellena Formularios</title>
 <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
-<script src="https://alcdn.msauth.net/browser/2.38.3/js/msal-browser.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
@@ -101,7 +100,7 @@ body{font-family:var(--f);background:var(--bg);color:var(--t);font-size:13px;lin
 <div class="hdr">
   <div class="logo">INT</div>
   <div class="htx"><div class="ht">Rellena Formularios</div><div class="hs" id="hSub">Conectando SharePoint...</div></div>
-  <div class="ver">v1.2</div>
+  <div class="ver">v1.5</div>
 </div>
 <div class="steps">
   <div class="step active" id="s1"><div class="sd">1</div><div class="sl">Documento</div></div>
@@ -172,54 +171,48 @@ body{font-family:var(--f);background:var(--bg);color:var(--t);font-size:13px;lin
 <div class="toast" id="toast"></div>
 <script>
 const CFG={
-  clientId:'a58742ce-60cc-4ea1-a9b1-2ea6dd751df1',
-  tenantId:'3ac63ba7-4f34-41f6-85a0-7fb5b9be2bdb',
   driveId:'b!0_eiUrX67U-XofAwHJeTqs9SWxlTMfBFiLMucSxWuHdaAgQD43CcQJQGO2DrfgAN',
   fileId:'01GTLRBE3TGRLYTNGMQBF3DD7EGVY6QE5E',
-  sheet:'DATOS_FORMULARIOS',
-  scopes:['https://graph.microsoft.com/Files.Read.All']
+  sheet:'DATOS_FORMULARIOS'
 };
-let msal_=null,DATOS={};
+let DATOS={};
 let ST={step:1,file:null,fields:[],buf:null,html:'',type:''};
 
-// ── MSAL ──
-function initMsal(){
-  msal_=new msal.PublicClientApplication({
-    auth:{clientId:CFG.clientId,authority:'https://login.microsoftonline.com/'+CFG.tenantId,redirectUri:location.origin+location.pathname},
-    cache:{cacheLocation:'localStorage',storeAuthStateInCookie:true}
-  });
-  msal_.handleRedirectPromise().then(r=>{checkAuth();}).catch(e=>{setA('err','Error: '+e.message);document.getElementById('btnLogin').style.display='';});
-}
-async function checkAuth(){
-  const accs=msal_.getAllAccounts();
-  if(!accs.length){setA('err','No autenticado');document.getElementById('btnLogin').style.display='';setSt('Inicia sesión con Microsoft 365');return;}
-  const u=accs[0];
-  setA('ld','Cargando datos SharePoint...');
-  document.getElementById('btnOut').style.display='';
-  document.getElementById('hSub').textContent=u.username;
+// ── AUTH: Office SSO — usa la sesión activa de Outlook ──
+async function initAuth(){
+  setA('ld','Cargando datos empresa...');
   try{
-    const tok=await getTok();
-    DATOS=await loadSP(tok);
+    const tok = await Office.auth.getAccessToken({allowSignInPrompt:false,allowConsentPrompt:false});
+    DATOS = await loadSP(tok);
     const n=DATOS.razon_social||'INTELEC';
     const c=DATOS.cif||'';
-    setA('ok','Datos cargados · '+n+' '+c);
+    setA('ok','✓ '+n+' · '+c);
     document.getElementById('hSub').textContent=n+' · '+c;
-    setSt('Datos empresa cargados · selecciona documento');
+    setSt('Datos cargados · selecciona documento');
     chkNext();
-  }catch(e){setA('err','Error SharePoint: '+e.message);setSt('Error: '+e.message);}
-}
-async function getTok(){
-  const a=msal_.getAllAccounts();
-  if(!a.length)throw new Error('Sin sesión');
-  try{return(await msal_.acquireTokenSilent({scopes:CFG.scopes,account:a[0]})).accessToken;}
-  catch{return(await msal_.acquireTokenPopup({scopes:CFG.scopes})).accessToken;}
+  }catch(e){
+    // Si falla el SSO, mostrar botón manual
+    setA('err','Error al cargar datos: '+e.message);
+    document.getElementById('btnLogin').style.display='';
+    setSt('Error: '+e.message);
+  }
 }
 async function doLogin(){
-  try{await msal_.loginPopup({scopes:CFG.scopes});document.getElementById('btnLogin').style.display='none';checkAuth();}
-  catch(e){setA('err','Login cancelado');}
+  // Reintentar con consentimiento explícito si el SSO silencioso falló
+  try{
+    const tok=await Office.auth.getAccessToken({allowSignInPrompt:true,allowConsentPrompt:true});
+    DATOS=await loadSP(tok);
+    document.getElementById('btnLogin').style.display='none';
+    const n=DATOS.razon_social||'INTELEC';
+    setA('ok','✓ '+n);
+    chkNext();
+  }catch(e){setA('err','Error: '+e.message);}
 }
 function doLogout(){
-  msal_.logoutPopup().then(()=>{DATOS={};setA('err','Sesión cerrada');document.getElementById('btnLogin').style.display='';document.getElementById('btnOut').style.display='none';document.getElementById('hSub').textContent='Conectar...';document.getElementById('btnNx').disabled=true;});
+  DATOS={};
+  setA('err','Datos descargados');
+  document.getElementById('btnNx').disabled=true;
+  document.getElementById('hSub').textContent='Conectando...';
 }
 
 // ── SHAREPOINT ──
@@ -244,24 +237,39 @@ if(typeof Office!=='undefined'){
     offR=true;
     document.getElementById('attL').innerHTML='<div style="font-size:11px;color:var(--t3);">Cargando adjuntos...</div>';
     try{ loadAtts(); }catch(e){ document.getElementById('attL').innerHTML='<div style="font-size:11px;color:var(--t3);">'+e.message+'</div>'; }
+    initAuth();
   });
 }
 
 function loadAtts(){
-  const item=Office.context.mailbox.item;
-  if(!item?.attachments?.length){document.getElementById('attL').innerHTML='<div style="font-size:11px;color:var(--t3);padding:6px 0;">Sin adjuntos.</div>';return;}
+  const item=Office.context?.mailbox?.item;
+  if(!item){document.getElementById('attL').innerHTML='<div style="font-size:11px;color:var(--t3);">Item no disponible.</div>';return;}
   const sup=['.docx','.doc','.xlsx','.pdf'];
-  const atts=item.attachments.filter(a=>!a.isInline&&sup.some(e=>a.name.toLowerCase().endsWith(e)));
-  if(!atts.length){document.getElementById('attL').innerHTML='<div style="font-size:11px;color:var(--t3);">Sin adjuntos compatibles.</div>';return;}
-  document.getElementById('attL').innerHTML='';
-  atts.forEach(a=>{
-    const ext=a.name.split('.').pop().toLowerCase();
-    const d=document.createElement('div');
-    d.className='att-item';
-    d.innerHTML=`<div class="aico ${ext}">${ext.toUpperCase()}</div><div class="aname">${a.name}</div><div class="asize">${a.size?fmtSz(a.size):''}</div>`;
-    d.onclick=()=>selAtt(a,d);
-    document.getElementById('attL').appendChild(d);
-  });
+
+  function renderAtts(atts){
+    const filtered=atts.filter(a=>!a.isInline&&sup.some(e=>a.name.toLowerCase().endsWith(e)));
+    if(!filtered.length){document.getElementById('attL').innerHTML='<div style="font-size:11px;color:var(--t3);">Sin adjuntos compatibles (DOCX, XLSX, PDF).</div>';return;}
+    document.getElementById('attL').innerHTML='';
+    filtered.forEach(a=>{
+      const ext=a.name.split('.').pop().toLowerCase();
+      const d=document.createElement('div');
+      d.className='att-item';
+      d.innerHTML=`<div class="aico ${['doc','docx'].includes(ext)?'docx':ext}">${ext.toUpperCase()}</div><div class="aname">${a.name}</div><div class="asize">${a.size?fmtSz(a.size):''}</div>`;
+      d.onclick=()=>selAtt(a,d);
+      document.getElementById('attL').appendChild(d);
+    });
+  }
+
+  // Nuevo Outlook: usar getAttachmentsAsync
+  if(typeof item.getAttachmentsAsync==='function'){
+    item.getAttachmentsAsync(r=>{
+      if(r.status===Office.AsyncResultStatus.Succeeded) renderAtts(r.value||[]);
+      else renderAtts(item.attachments||[]);
+    });
+  } else {
+    // Outlook clásico: array síncrono
+    renderAtts(item.attachments||[]);
+  }
 }
 function selAtt(a,el){
   document.querySelectorAll('.att-item').forEach(i=>i.classList.remove('selected'));el.classList.add('selected');setSt('Descargando...');
@@ -460,7 +468,7 @@ function toast(m){const t=document.getElementById('toast');t.textContent=m;t.cla
 // ── BOOT ──
 window.addEventListener('load',()=>{
   const k=localStorage.getItem('int_ak');if(k)document.getElementById('ak').value=k;
-  initMsal();
+
   // Si Office.onReady no se dispara en 4s → no estamos en Outlook
   setTimeout(()=>{
     if(!offR)document.getElementById('attL').innerHTML='<div style="font-size:11px;color:var(--t3);">Fuera de Outlook — usa carga manual.</div>';
