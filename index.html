@@ -182,7 +182,7 @@ body{font-family:var(--f);background:var(--bg);color:var(--text);font-size:13px;
     <div class="ht">Rellena Formularios</div>
     <div class="hs" id="hSub">Conectando a SharePoint...</div>
   </div>
-  <div class="ver">v2.6</div>
+  <div class="ver">v2.7</div>
 </div>
 
 <!-- STEPS -->
@@ -409,68 +409,50 @@ async function loadSP(tok){
   return o;
 }
 
-// ── OFFICE — Nuevo Outlook + clásico ──
+// ── OFFICE.JS — patrón idéntico a Firma Digital ──
 let offR=false;
-if(typeof Office!=='undefined'){
+function initOffice(){
+  if(typeof Office==='undefined') return;
   Office.onReady(info=>{
-    offR=true;
-    if(info.host===Office.HostType.Outlook||info.host==='Outlook'){
-      // CRÍTICO: registrar handler para cuando el usuario cambia de email
-      try{
-        Office.context.mailbox.addHandlerAsync(
-          Office.EventType.ItemChanged,
-          ()=>{ setTimeout(loadAtts, 200); }
-        );
-      }catch(e){}
+    if(info.host===Office.HostType.Outlook){
+      offR=true;
+      loadAtts();
+      initAuth();
     }
-    setTimeout(loadAtts, 100);
-    initAuth();
   });
 }
+if(typeof Office==='undefined'){
+  const s=document.createElement('script');
+  s.src='https://appsforoffice.microsoft.com/lib/1.1/hosted/office.js';
+  s.onload=initOffice;
+  document.head.appendChild(s);
+} else { initOffice(); }
 
-// ── ADJUNTOS — Nuevo Outlook + clásico ──
+// ── ADJUNTOS — copiado literal de Firma Digital ──
 function loadAtts(){
-  const item = Office.context?.mailbox?.item;
-  if(!item){
-    document.getElementById('attL').innerHTML='<div style="font-size:11px;color:var(--text3);">Selecciona un correo.</div>';
-    return;
-  }
-
-  const sup = /\.(docx|doc|xlsx|pdf)$/i;
-
-  // 1) intento síncrono (Outlook clásico)
-  const sync = (item.attachments||[]).filter(a=>sup.test(a.name||''));
-  if(sync.length>0){ _renderAtts(sync); return; }
-
-  // 2) async (Nuevo Outlook — Mailbox 1.8+)
-  if(typeof item.getAttachmentsAsync==='function'){
-    item.getAttachmentsAsync(r=>{
-      if(r.status===Office.AsyncResultStatus.Succeeded){
-        const atts=(r.value||[]).filter(a=>sup.test(a.name||''));
-        if(atts.length>0){ _renderAtts(atts); return; }
-      }
+  try{
+    const item=Office.context.mailbox.item;
+    const atts=(item?.attachments||[]).filter(a=>
+      a.name && /\.(docx|doc|xlsx|pdf)$/i.test(a.name)
+    );
+    if(atts.length===0){
       document.getElementById('attL').innerHTML=
-        '<div style="font-size:11px;color:var(--text3);">Sin adjuntos compatibles (DOCX, XLSX, PDF) en este correo.</div>'+
-        '<button class="btn btn-g btn-w mt8" style="font-size:11px;" onclick="loadAtts()">↺ Recargar</button>';
+        '<div style="font-size:11px;color:var(--text3);">Sin adjuntos compatibles en este correo.</div>';
+      return;
+    }
+    document.getElementById('attL').innerHTML='';
+    atts.forEach(a=>{
+      const ext=a.name.split('.').pop().toLowerCase();
+      const d=document.createElement('div');
+      d.className='att-item';
+      d.innerHTML=`<div class="aico ${['doc','docx'].includes(ext)?'docx':ext}">${ext.toUpperCase()}</div><div class="aname">${a.name}</div><div class="asize">${a.size?fmtSz(a.size):''}</div>`;
+      d.onclick=()=>selAtt(a,d);
+      document.getElementById('attL').appendChild(d);
     });
-    return;
+  }catch(e){
+    document.getElementById('attL').innerHTML=
+      '<div style="font-size:11px;color:var(--text3);">Error: '+e.message+'</div>';
   }
-
-  document.getElementById('attL').innerHTML=
-    '<div style="font-size:11px;color:var(--text3);">Sin adjuntos compatibles.</div>'+
-    '<button class="btn btn-g btn-w mt8" style="font-size:11px;" onclick="loadAtts()">↺ Recargar</button>';
-}
-
-function _renderAtts(atts){
-  document.getElementById('attL').innerHTML='';
-  atts.forEach(a=>{
-    const ext=(a.name||'').split('.').pop().toLowerCase();
-    const d=document.createElement('div');
-    d.className='att-item';
-    d.innerHTML=`<div class="aico ${['doc','docx'].includes(ext)?'docx':ext}">${ext.toUpperCase()}</div><div class="aname">${a.name}</div><div class="asize">${a.size?fmtSz(a.size):''}</div>`;
-    d.onclick=()=>selAtt(a,d);
-    document.getElementById('attL').appendChild(d);
-  });
 }
 
 function selAtt(att,el){
