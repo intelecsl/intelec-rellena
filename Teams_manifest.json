@@ -116,5 +116,9 @@
         }
       ]
     }
-  ]
+  ],
+  "webApplicationInfo": {
+    "id": "a58742ce-60cc-4ea1-a9b1-2ea6dd751df1",
+    "resource": "api://intelecsl.github.io/intelec-rellena/a58742ce-60cc-4ea1-a9b1-2ea6dd751df1"
+  }
 }
