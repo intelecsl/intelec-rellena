@@ -182,7 +182,7 @@ body{font-family:var(--f);background:var(--bg);color:var(--text);font-size:13px;
     <div class="ht">Rellena Formularios</div>
     <div class="hs" id="hSub">Conectando a SharePoint...</div>
   </div>
-  <div class="ver">v3.2</div>
+  <div class="ver">v3.3</div>
 </div>
 
 <!-- STEPS -->
@@ -447,6 +447,7 @@ async function loadSP(tok){
 let offR=false;
 
 function bootApp(){
+  window.__dbg && window.__dbg("[boot] bootApp() iniciada");
   __log("bootApp() llamada");
   // Siempre intentar cargar adjuntos y auth, sin importar el host
   setSt('Iniciando...');
@@ -466,10 +467,11 @@ function tryRegisterItemChanged(){
 }
 
 function whenOfficeReady(){
+  window.__dbg && window.__dbg("[boot] whenOfficeReady() llamada");
   __log("whenOfficeReady() llamada");
   try{
     Office.onReady(info=>{
-      __log('onReady disparado, host='+info?.host);
+      window.__dbg && window.__dbg('[boot] Office.onReady disparado, host='+(info&&info.host));
       offR=true;
       console.log('Office.onReady: host='+info?.host);
       tryRegisterItemChanged();
@@ -502,7 +504,7 @@ setTimeout(()=>{
 
 // ── ADJUNTOS con diagnóstico ──
 function loadAtts(){
-  __log("loadAtts() llamada");
+  window.__dbg && window.__dbg("[boot] loadAtts() llamada");
   const dbg=[];
   const log=m=>{ dbg.push(m); console.log('[ADJUNTOS]',m); };
 
@@ -748,6 +750,20 @@ td{padding:7px 12px;border-bottom:1px solid #e5e5e5}td.l{font-size:9pt;color:#55
 .ft{margin-top:28px;padding-top:10px;border-top:1px solid #ddd;font-size:8pt;color:#999;display:flex;justify-content:space-between}
 @media print{@page{margin:1.5cm}}</style>
 </head><body>
+<div id="DBG" style="background:#000;color:#0f0;font:11px monospace;padding:10px;white-space:pre-wrap;word-break:break-all;border-bottom:3px solid #ff0;max-height:40vh;overflow:auto">[DBG] HTML cargado · esperando JS...</div>
+<script>
+// Debug que se ejecuta ANTES de cualquier otra cosa
+(function(){
+  var d=document.getElementById('DBG');
+  function add(m){ try{ d.textContent += '\n'+m; }catch(e){} }
+  add('[1] Script inicial OK · '+new Date().toLocaleTimeString());
+  add('[2] location.href='+location.href);
+  add('[3] Office='+typeof window.Office);
+  window.addEventListener('error',function(e){ add('[ERR] '+(e.message||'?')+' @ '+(e.filename||'').split('/').pop()+':'+e.lineno); });
+  window.addEventListener('unhandledrejection',function(e){ add('[REJ] '+(e.reason&&e.reason.message||e.reason||'?')); });
+  window.__dbg=add;
+})();
+</script>
 <div class="hdr"><div class="lb">INTELEC</div><div><h1>${eH(fname)}</h1><div class="sub">${eH(n)} · CIF ${eH(c)} · ${new Date().toLocaleDateString('es-ES')}</div></div></div>
 <table><tr><th>Campo</th><th>Valor rellenado</th></tr>${rows}</table>
 <div class="ft"><span>${eH(n)} · ${eH(d)}</span><span>Intelec Rellena Formularios v1.1</span></div>
@@ -791,6 +807,14 @@ window.addEventListener('load',()=>{
   },4000);
   setSt('Iniciando...');
 });
+</script>
+<script>
+window.__dbg && window.__dbg("[end] Fin del script principal alcanzado · todo cargado OK");
+// Forzar arranque después de 1s si nada ocurre
+setTimeout(function(){
+  window.__dbg && window.__dbg("[1s] Forzando bootApp()");
+  try{ bootApp(); }catch(e){ window.__dbg && window.__dbg("[ERR bootApp] "+e.message); }
+}, 1000);
 </script>
 </body>
 </html>
