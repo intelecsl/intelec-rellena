@@ -238,8 +238,14 @@ async function loadSP(tok){
 
 // ── OFFICE ──
 let offR=false;
-if(typeof Office!=='undefined'){Office.initialize=()=>{offR=true;loadAtts()};}
-else{document.getElementById('attL').innerHTML='<div style="font-size:11px;color:var(--t3);">Fuera de Outlook — usa carga manual.</div>';}
+if(typeof Office!=='undefined'){
+  // Office.onReady es el método correcto para manifests unificados (devPreview)
+  Office.onReady(info=>{
+    offR=true;
+    document.getElementById('attL').innerHTML='<div style="font-size:11px;color:var(--t3);">Cargando adjuntos...</div>';
+    try{ loadAtts(); }catch(e){ document.getElementById('attL').innerHTML='<div style="font-size:11px;color:var(--t3);">'+e.message+'</div>'; }
+  });
+}
 
 function loadAtts(){
   const item=Office.context.mailbox.item;
@@ -455,7 +461,10 @@ function toast(m){const t=document.getElementById('toast');t.textContent=m;t.cla
 window.addEventListener('load',()=>{
   const k=localStorage.getItem('int_ak');if(k)document.getElementById('ak').value=k;
   initMsal();
-  if(!offR)document.getElementById('attL').innerHTML='<div style="font-size:11px;color:var(--t3);">Fuera de Outlook — usa carga manual.</div>';
+  // Si Office.onReady no se dispara en 4s → no estamos en Outlook
+  setTimeout(()=>{
+    if(!offR)document.getElementById('attL').innerHTML='<div style="font-size:11px;color:var(--t3);">Fuera de Outlook — usa carga manual.</div>';
+  },4000);
   setSt('Iniciando...');
 });
 </script>
