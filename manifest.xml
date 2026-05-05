@@ -14,8 +14,8 @@
   <Description DefaultValue="Rellena formularios de alta de proveedor y contratos con los datos de INTELEC S.L. automáticamente usando IA."/>
 
   <IconUrl DefaultValue="https://intelecsl.github.io/intelec-rellena/icon-64.png"/>
-  <HighResolutionIconUrl DefaultValue="https://TU-USUARIO.github.io/intelec-rellena/icon-128.png"/>
-  <SupportUrl DefaultValue="https://github.com/TU-USUARIO/intelec-rellena"/>
+  <HighResolutionIconUrl DefaultValue="https://intelecsl.github.io/intelec-rellena/icon-128.png"/>
+  <SupportUrl DefaultValue="https://github.com/intelecsl/intelec-rellena"/>
 
   <AppDomains>
     <AppDomain>https://api.anthropic.com</AppDomain>
