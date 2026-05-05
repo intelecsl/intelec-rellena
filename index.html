@@ -182,7 +182,7 @@ body{font-family:var(--f);background:var(--bg);color:var(--text);font-size:13px;
     <div class="ht">Rellena Formularios</div>
     <div class="hs" id="hSub">Conectando a SharePoint...</div>
   </div>
-  <div class="ver">v2.4</div>
+  <div class="ver">v2.5</div>
 </div>
 
 <!-- STEPS -->
@@ -416,26 +416,33 @@ if(typeof Office!=='undefined'){
   Office.onReady(info=>{
     offR=true;
     document.getElementById('attL').innerHTML='<div style="font-size:11px;color:var(--t3);">Cargando adjuntos...</div>';
-    initAuth().then(()=>loadAtts()).catch(()=>loadAtts());
+    loadAtts();
+    initAuth();
   });
 }
 
 // ── ADJUNTOS — idéntico a Firma Digital ──
+let _attTries=0;
 function loadAtts(){
-  const item=Office.context.mailbox.item;
+  _attTries=0;
+  _doLoadAtts();
+}
+function _doLoadAtts(){
+  const item=Office.context?.mailbox?.item;
+  if(!item){ if(_attTries++<8) setTimeout(_doLoadAtts,600); return; }
   const sup=['.docx','.doc','.xlsx','.pdf'];
-  const atts=(item.attachments||[]).filter(a=>
-    sup.some(e=>a.name.toLowerCase().endsWith(e))&&
-    a.attachmentType===Office.MailboxEnums.AttachmentType.File
-  );
+  // Sin filtro attachmentType — no funciona en Nuevo Outlook
+  const all=item.attachments||[];
+  const atts=all.filter(a=>(a.name||'').toLowerCase().match(/\.(docx|doc|xlsx|pdf)$/));
   if(!atts.length){
+    if(_attTries++<8){ setTimeout(_doLoadAtts,800); return; }
     document.getElementById('attL').innerHTML=
       '<div style="font-size:11px;color:var(--text3);">Sin adjuntos compatibles en este correo.</div>';
     return;
   }
   document.getElementById('attL').innerHTML='';
   atts.forEach(a=>{
-    const ext=a.name.split('.').pop().toLowerCase();
+    const ext=(a.name||'').split('.').pop().toLowerCase();
     const d=document.createElement('div');
     d.className='att-item';
     d.innerHTML=`<div class="aico ${['doc','docx'].includes(ext)?'docx':ext}">${ext.toUpperCase()}</div><div class="aname">${a.name}</div><div class="asize">${a.size?fmtSz(a.size):''}</div>`;
