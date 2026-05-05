@@ -182,7 +182,7 @@ body{font-family:var(--f);background:var(--bg);color:var(--text);font-size:13px;
     <div class="ht">Rellena Formularios</div>
     <div class="hs" id="hSub">Conectando a SharePoint...</div>
   </div>
-  <div class="ver">v2.8</div>
+  <div class="ver">v3.0</div>
 </div>
 
 <!-- STEPS -->
@@ -435,31 +435,82 @@ if(typeof Office==='undefined'){
   document.head.appendChild(s);
 } else { initOffice(); }
 
-// ── ADJUNTOS — copiado literal de Firma Digital ──
+// ── ADJUNTOS con diagnóstico ──
 function loadAtts(){
+  const dbg=[];
+  const log=m=>{ dbg.push(m); console.log('[ADJUNTOS]',m); };
+
   try{
-    const item=Office.context.mailbox.item;
-    const atts=(item?.attachments||[]).filter(a=>
-      a.name && /\.(docx|doc|xlsx|pdf)$/i.test(a.name)
-    );
-    if(atts.length===0){
-      document.getElementById('attL').innerHTML=
-        '<div style="font-size:11px;color:var(--text3);">Sin adjuntos compatibles en este correo.</div>';
+    log('Office='+typeof Office);
+    log('mailbox='+(Office.context?.mailbox?'OK':'NO'));
+    const item=Office.context?.mailbox?.item;
+    log('item='+(item?'OK':'NO'));
+
+    if(!item){ _showDbg(dbg, 'item es null/undefined'); return; }
+
+    log('itemType='+item.itemType);
+    log('itemClass='+item.itemClass);
+    log('subject='+(item.subject||'(none)'));
+    log('attachments prop='+(item.attachments===undefined?'undefined':item.attachments===null?'null':'array['+item.attachments.length+']'));
+    log('hasAsync='+(typeof item.getAttachmentsAsync));
+
+    // 1) acceso síncrono
+    const sync=item.attachments;
+    if(Array.isArray(sync)&&sync.length>0){
+      log('Encontrados síncronos: '+sync.length);
+      sync.forEach((a,i)=>log('  ['+i+'] name='+a.name+' size='+a.size+' type='+a.attachmentType+' inline='+a.isInline));
+      const filt=sync.filter(a=>a.name&&/\.(docx|doc|xlsx|pdf)$/i.test(a.name));
+      log('Compatibles: '+filt.length);
+      if(filt.length>0){ _renderAtts(filt); return; }
+    }
+
+    // 2) async (Mailbox 1.8+)
+    if(typeof item.getAttachmentsAsync==='function'){
+      log('Probando getAttachmentsAsync...');
+      item.getAttachmentsAsync(r=>{
+        log('async status='+r.status);
+        if(r.status==='succeeded'||r.status===Office.AsyncResultStatus.Succeeded){
+          const v=r.value||[];
+          log('async attachments: '+v.length);
+          v.forEach((a,i)=>log('  ['+i+'] name='+a.name+' size='+a.size));
+          const filt=v.filter(a=>a.name&&/\.(docx|doc|xlsx|pdf)$/i.test(a.name));
+          if(filt.length>0){ _renderAtts(filt); return; }
+        } else if(r.error){ log('async error: '+r.error.message); }
+        _showDbg(dbg, 'No se encontraron adjuntos via async');
+      });
       return;
     }
-    document.getElementById('attL').innerHTML='';
-    atts.forEach(a=>{
-      const ext=a.name.split('.').pop().toLowerCase();
-      const d=document.createElement('div');
-      d.className='att-item';
-      d.innerHTML=`<div class="aico ${['doc','docx'].includes(ext)?'docx':ext}">${ext.toUpperCase()}</div><div class="aname">${a.name}</div><div class="asize">${a.size?fmtSz(a.size):''}</div>`;
-      d.onclick=()=>selAtt(a,d);
-      document.getElementById('attL').appendChild(d);
-    });
+
+    _showDbg(dbg, 'No hay adjuntos en attachments[] ni función async');
   }catch(e){
-    document.getElementById('attL').innerHTML=
-      '<div style="font-size:11px;color:var(--text3);">Error: '+e.message+'</div>';
+    log('EXCEPTION: '+e.message+' - '+e.stack);
+    _showDbg(dbg, 'Excepción capturada');
   }
+}
+
+function _renderAtts(atts){
+  document.getElementById('attL').innerHTML='';
+  atts.forEach(a=>{
+    const ext=a.name.split('.').pop().toLowerCase();
+    const d=document.createElement('div');
+    d.className='att-item';
+    d.innerHTML=`<div class="aico ${['doc','docx'].includes(ext)?'docx':ext}">${ext.toUpperCase()}</div><div class="aname">${a.name}</div><div class="asize">${a.size?fmtSz(a.size):''}</div>`;
+    d.onclick=()=>selAtt(a,d);
+    document.getElementById('attL').appendChild(d);
+  });
+}
+
+function _showDbg(dbg, summary){
+  const text=dbg.join('
+');
+  document.getElementById('attL').innerHTML=
+    '<button class="btn btn-gold btn-w" style="margin-bottom:10px;padding:10px;font-size:12px;font-weight:600;" onclick="document.getElementById(\'fi\').click()">📎 Cargar archivo manualmente</button>'+
+    '<div style="font-size:11px;color:var(--red);margin-bottom:6px;font-weight:600;">⚠ '+summary+'</div>'+
+    '<pre style="font-size:9px;color:var(--text2);background:var(--bg3);padding:8px;border-radius:4px;border:1px solid var(--border);white-space:pre-wrap;word-break:break-word;max-height:200px;overflow-y:auto;font-family:monospace;line-height:1.4;">'+text.replace(/</g,'&lt;')+'</pre>'+
+    '<div style="display:flex;gap:6px;margin-top:8px;">'+
+    '<button class="btn btn-g" style="flex:1;font-size:11px;" onclick="navigator.clipboard.writeText(document.querySelector(\'pre\').innerText);toast(\'Copiado\')">📋 Copiar log</button>'+
+    '<button class="btn btn-g" style="flex:1;font-size:11px;" onclick="loadAtts()">↺ Reintentar</button>'+
+    '</div>';
 }
 
 function selAtt(att,el){
