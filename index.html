@@ -182,7 +182,7 @@ body{font-family:var(--f);background:var(--bg);color:var(--text);font-size:13px;
     <div class="ht">Rellena Formularios</div>
     <div class="hs" id="hSub">Conectando a SharePoint...</div>
   </div>
-  <div class="ver">v2.5</div>
+  <div class="ver">v2.6</div>
 </div>
 
 <!-- STEPS -->
@@ -409,37 +409,59 @@ async function loadSP(tok){
   return o;
 }
 
-// ── OFFICE ──
+// ── OFFICE — Nuevo Outlook + clásico ──
 let offR=false;
 if(typeof Office!=='undefined'){
-  // Office.onReady es el método correcto para manifests unificados (devPreview)
   Office.onReady(info=>{
     offR=true;
-    document.getElementById('attL').innerHTML='<div style="font-size:11px;color:var(--t3);">Cargando adjuntos...</div>';
-    loadAtts();
+    if(info.host===Office.HostType.Outlook||info.host==='Outlook'){
+      // CRÍTICO: registrar handler para cuando el usuario cambia de email
+      try{
+        Office.context.mailbox.addHandlerAsync(
+          Office.EventType.ItemChanged,
+          ()=>{ setTimeout(loadAtts, 200); }
+        );
+      }catch(e){}
+    }
+    setTimeout(loadAtts, 100);
     initAuth();
   });
 }
 
-// ── ADJUNTOS — idéntico a Firma Digital ──
-let _attTries=0;
+// ── ADJUNTOS — Nuevo Outlook + clásico ──
 function loadAtts(){
-  _attTries=0;
-  _doLoadAtts();
-}
-function _doLoadAtts(){
-  const item=Office.context?.mailbox?.item;
-  if(!item){ if(_attTries++<8) setTimeout(_doLoadAtts,600); return; }
-  const sup=['.docx','.doc','.xlsx','.pdf'];
-  // Sin filtro attachmentType — no funciona en Nuevo Outlook
-  const all=item.attachments||[];
-  const atts=all.filter(a=>(a.name||'').toLowerCase().match(/\.(docx|doc|xlsx|pdf)$/));
-  if(!atts.length){
-    if(_attTries++<8){ setTimeout(_doLoadAtts,800); return; }
-    document.getElementById('attL').innerHTML=
-      '<div style="font-size:11px;color:var(--text3);">Sin adjuntos compatibles en este correo.</div>';
+  const item = Office.context?.mailbox?.item;
+  if(!item){
+    document.getElementById('attL').innerHTML='<div style="font-size:11px;color:var(--text3);">Selecciona un correo.</div>';
     return;
   }
+
+  const sup = /\.(docx|doc|xlsx|pdf)$/i;
+
+  // 1) intento síncrono (Outlook clásico)
+  const sync = (item.attachments||[]).filter(a=>sup.test(a.name||''));
+  if(sync.length>0){ _renderAtts(sync); return; }
+
+  // 2) async (Nuevo Outlook — Mailbox 1.8+)
+  if(typeof item.getAttachmentsAsync==='function'){
+    item.getAttachmentsAsync(r=>{
+      if(r.status===Office.AsyncResultStatus.Succeeded){
+        const atts=(r.value||[]).filter(a=>sup.test(a.name||''));
+        if(atts.length>0){ _renderAtts(atts); return; }
+      }
+      document.getElementById('attL').innerHTML=
+        '<div style="font-size:11px;color:var(--text3);">Sin adjuntos compatibles (DOCX, XLSX, PDF) en este correo.</div>'+
+        '<button class="btn btn-g btn-w mt8" style="font-size:11px;" onclick="loadAtts()">↺ Recargar</button>';
+    });
+    return;
+  }
+
+  document.getElementById('attL').innerHTML=
+    '<div style="font-size:11px;color:var(--text3);">Sin adjuntos compatibles.</div>'+
+    '<button class="btn btn-g btn-w mt8" style="font-size:11px;" onclick="loadAtts()">↺ Recargar</button>';
+}
+
+function _renderAtts(atts){
   document.getElementById('attL').innerHTML='';
   atts.forEach(a=>{
     const ext=(a.name||'').split('.').pop().toLowerCase();
