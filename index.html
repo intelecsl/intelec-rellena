@@ -182,7 +182,7 @@ body{font-family:var(--f);background:var(--bg);color:var(--text);font-size:13px;
     <div class="ht">Rellena Formularios</div>
     <div class="hs" id="hSub">Conectando a SharePoint...</div>
   </div>
-  <div class="ver">v2.7</div>
+  <div class="ver">v2.8</div>
 </div>
 
 <!-- STEPS -->
@@ -418,6 +418,13 @@ function initOffice(){
       offR=true;
       loadAtts();
       initAuth();
+      // Recargar adjuntos cuando el usuario selecciona otro correo
+      try{
+        Office.context.mailbox.addHandlerAsync(
+          Office.EventType.ItemChanged,
+          ()=>{ setTimeout(loadAtts, 150); }
+        );
+      }catch(e){}
     }
   });
 }
