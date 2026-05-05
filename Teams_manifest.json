@@ -1,7 +1,7 @@
 {
   "$schema": "https://developer.microsoft.com/en-us/json-schemas/teams/vDevPreview/MicrosoftTeams.schema.json",
   "manifestVersion": "devPreview",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "id": "4c2a7f3b-8e1d-4b9a-c5f6-2d8e0a3b6c9d",
   "packageName": "com.intelecsl.rellena",
   "developer": {
@@ -116,5 +116,9 @@
         }
       ]
     }
-  ]
+  ],
+  "webApplicationInfo": {
+    "id": "a58742ce-60cc-4ea1-a9b1-2ea6dd751df1",
+    "resource": "api://3ac63ba7-4f34-41f6-85a0-7fb5b9be2bdb/a58742ce-60cc-4ea1-a9b1-2ea6dd751df1"
+  }
 }
