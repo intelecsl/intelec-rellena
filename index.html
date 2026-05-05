@@ -177,13 +177,12 @@ body{font-family:var(--f);background:var(--bg);color:var(--text);font-size:13px;
     <circle cx="16" cy="16" r="16" fill="#F8DB2C"/>
     <circle cx="16" cy="16" r="8.5" fill="#293A5F"/>
   </svg>
-  <span style="font-family:'Raleway',sans-serif;font-size:15px;font-weight:700;color:#fff;letter-spacing:.03em;flex-shrink:0">intelec</span>
   <div class="hdr-divider"></div>
   <div class="htx">
     <div class="ht">Rellena Formularios</div>
     <div class="hs" id="hSub">Conectando a SharePoint...</div>
   </div>
-  <div class="ver">v2.3</div>
+  <div class="ver">v2.4</div>
 </div>
 
 <!-- STEPS -->
@@ -421,94 +420,48 @@ if(typeof Office!=='undefined'){
   });
 }
 
-function _renderAttList(atts){
+// ── ADJUNTOS — idéntico a Firma Digital ──
+function loadAtts(){
+  const item=Office.context.mailbox.item;
   const sup=['.docx','.doc','.xlsx','.pdf'];
-  const filtered=atts.filter(a=>sup.some(e=>(a.name||'').toLowerCase().endsWith(e)));
-  if(!filtered.length){
+  const atts=(item.attachments||[]).filter(a=>
+    sup.some(e=>a.name.toLowerCase().endsWith(e))&&
+    a.attachmentType===Office.MailboxEnums.AttachmentType.File
+  );
+  if(!atts.length){
     document.getElementById('attL').innerHTML=
-      '<div style="font-size:11px;color:var(--text3);">Sin adjuntos compatibles.</div>'+
-      '<button class="btn btn-g btn-w mt8" style="font-size:11px;" onclick="loadAtts()">↺ Reintentar</button>';
+      '<div style="font-size:11px;color:var(--text3);">Sin adjuntos compatibles en este correo.</div>';
     return;
   }
   document.getElementById('attL').innerHTML='';
-  filtered.forEach(a=>{
-    const ext=(a.name||'file').split('.').pop().toLowerCase();
-    const isGraph=!!a.id&&!a.attachmentType; // Graph API attachment
+  atts.forEach(a=>{
+    const ext=a.name.split('.').pop().toLowerCase();
     const d=document.createElement('div');
     d.className='att-item';
     d.innerHTML=`<div class="aico ${['doc','docx'].includes(ext)?'docx':ext}">${ext.toUpperCase()}</div><div class="aname">${a.name}</div><div class="asize">${a.size?fmtSz(a.size):''}</div>`;
-    d.onclick=()=>{ isGraph ? selAttGraph(a,d) : selAtt(a,d); };
+    d.onclick=()=>selAtt(a,d);
     document.getElementById('attL').appendChild(d);
   });
 }
 
-async function loadAtts(){
-  document.getElementById('attL').innerHTML='<div style="font-size:11px;color:var(--text3);">Cargando...</div>';
-  const item=Office.context?.mailbox?.item;
-  if(!item){ document.getElementById('attL').innerHTML='<div style="font-size:11px;color:var(--text3);">Correo no disponible.</div>'; return; }
-
-  // Método 1: Graph API (más fiable en Nuevo Outlook)
-  try{
-    const tok=await getStoredToken();
-    if(tok && item.itemId){
-      const restId=Office.context.mailbox.convertToRestId(item.itemId, Office.MailboxEnums.RestVersion.v2_0);
-      const r=await fetch(`https://graph.microsoft.com/v1.0/me/messages/${encodeURIComponent(restId)}/attachments?$select=id,name,size,isInline,contentType`,
-        {headers:{Authorization:'Bearer '+tok}});
-      if(r.ok){
-        const d=await r.json();
-        const atts=(d.value||[]).filter(a=>!a.isInline);
-        if(atts.length>0){ _renderAttList(atts); return; }
-      }
-    }
-  }catch(e){}
-
-  // Método 2: Office.js síncrono
-  const sync=item.attachments||[];
-  if(sync.length>0){ _renderAttList(sync); return; }
-
-  // Método 3: getAttachmentsAsync
-  if(typeof item.getAttachmentsAsync==='function'){
-    item.getAttachmentsAsync(r=>{
-      if(r.status===Office.AsyncResultStatus.Succeeded&&(r.value||[]).length>0){ _renderAttList(r.value); return; }
-      document.getElementById('attL').innerHTML=
-        '<div style="font-size:11px;color:var(--text3);">No se encontraron adjuntos.</div>'+
-        '<button class="btn btn-g btn-w mt8" style="font-size:11px;" onclick="loadAtts()">↺ Reintentar</button>';
-    });
-  } else {
-    document.getElementById('attL').innerHTML=
-      '<div style="font-size:11px;color:var(--text3);">Sin adjuntos detectados.</div>'+
-      '<button class="btn btn-g btn-w mt8" style="font-size:11px;" onclick="loadAtts()">↺ Reintentar</button>';
-  }
-}
-
-// Seleccionar adjunto vía Graph API (Nuevo Outlook)
-async function selAttGraph(att, el){
+function selAtt(att,el){
   document.querySelectorAll('.att-item').forEach(i=>i.classList.remove('selected'));
-  el.classList.add('selected'); setSt('Descargando...');
-  try{
-    const tok=await getStoredToken();
-    const item=Office.context.mailbox.item;
-    const restId=Office.context.mailbox.convertToRestId(item.itemId, Office.MailboxEnums.RestVersion.v2_0);
-    const r=await fetch(`https://graph.microsoft.com/v1.0/me/messages/${encodeURIComponent(restId)}/attachments/${att.id}?$select=contentBytes`,
-      {headers:{Authorization:'Bearer '+tok}});
-    const d=await r.json();
-    const bin=atob(d.contentBytes); const buf=new Uint8Array(bin.length);
-    for(let i=0;i<bin.length;i++) buf[i]=bin.charCodeAt(i);
-    const ext=att.name.split('.').pop().toLowerCase();
-    ST.file={name:att.name,type:ext==='doc'?'docx':ext,size:buf.byteLength,buf:buf.buffer};
-    showSF(att.name,buf.byteLength,ext); chkNext(); setSt('Listo · '+att.name);
-  }catch(e){ toast('Error al descargar: '+e.message); }
-}
-function selAtt(a,el){
-  document.querySelectorAll('.att-item').forEach(i=>i.classList.remove('selected'));el.classList.add('selected');setSt('Descargando...');
-  Office.context.mailbox.item.getAttachmentContentAsync(a.id,r=>{
-    if(r.status!==Office.AsyncResultStatus.Succeeded){toast('Error al descargar');return;}
-    const bin=atob(r.value.content),buf=new Uint8Array(bin.length);
-    for(let i=0;i<bin.length;i++)buf[i]=bin.charCodeAt(i);
-    const ext=a.name.split('.').pop().toLowerCase();
-    ST.file={name:a.name,type:ext==='doc'?'docx':ext,size:buf.byteLength,buf:buf.buffer};
-    showSF(a.name,buf.byteLength,ext);chkNext();setSt('Listo · '+a.name);
-  });
+  el.classList.add('selected');setSt('Cargando adjunto...');
+  Office.context.mailbox.item.getAttachmentContentAsync(
+    att.id,{asyncContext:att},
+    result=>{
+      if(result.status!==Office.AsyncResultStatus.Succeeded){
+        toast('Error al cargar: '+result.error.message);return;
+      }
+      const b64=result.value.content;
+      const bin=atob(b64);
+      const bytes=new Uint8Array(bin.length);
+      for(let i=0;i<bin.length;i++) bytes[i]=bin.charCodeAt(i);
+      const ext=att.name.split('.').pop().toLowerCase();
+      ST.file={name:att.name,type:ext==='doc'?'docx':ext,size:bytes.byteLength,buf:bytes.buffer};
+      showSF(att.name,bytes.byteLength,ext);chkNext();setSt('Listo · '+att.name);
+    }
+  );
 }
 
 // ── UPLOAD ──
