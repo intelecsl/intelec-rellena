@@ -5,18 +5,19 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
 <title>Intelec Rellena Formularios</title>
 <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@azure/msal-browser@2.38.3/lib/msal-browser.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Raleway:wght@400;500;600;700&family=Open+Sans:wght@400;500;600&display=swap');
 :root{
-  --navy:#2B3671;
-  --navy2:#364280;
-  --navy3:#1e2a5a;
-  --gold:#F9D100;
-  --gold2:rgba(249,209,0,0.12);
-  --gold3:rgba(249,209,0,0.25);
+  --navy:#293A5F;
+  --navy2:#344875;
+  --navy3:#1e2d4a;
+  --gold:#F8DB2C;
+  --gold2:rgba(248,219,44,0.12);
+  --gold3:rgba(248,219,44,0.25);
   --bg:#f4f6fb;
   --bg2:#ffffff;
   --bg3:#edf0f7;
@@ -173,8 +174,8 @@ body{font-family:var(--f);background:var(--bg);color:var(--text);font-size:13px;
 <div class="hdr">
   <!-- Logo Intelec: anillo amarillo + texto -->
   <svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" style="flex-shrink:0">
-    <circle cx="16" cy="16" r="16" fill="#F9D100"/>
-    <circle cx="16" cy="16" r="8.5" fill="#2B3671"/>
+    <circle cx="16" cy="16" r="16" fill="#F8DB2C"/>
+    <circle cx="16" cy="16" r="8.5" fill="#293A5F"/>
   </svg>
   <span style="font-family:'Raleway',sans-serif;font-size:15px;font-weight:700;color:#fff;letter-spacing:.03em;flex-shrink:0">intelec</span>
   <div class="hdr-divider"></div>
@@ -182,7 +183,7 @@ body{font-family:var(--f);background:var(--bg);color:var(--text);font-size:13px;
     <div class="ht">Rellena Formularios</div>
     <div class="hs" id="hSub">Conectando a SharePoint...</div>
   </div>
-  <div class="ver">v1.8</div>
+  <div class="ver">v2.0</div>
 </div>
 
 <!-- STEPS -->
@@ -300,41 +301,93 @@ const CFG={
 let DATOS={};
 let ST={step:1,file:null,fields:[],buf:null,html:'',type:''};
 
-// ── AUTH: Office SSO — usa la sesión activa de Outlook ──
+// ── AUTH: 3 niveles — SSO Office → MSAL silent → botón ──
+const CFG_AUTH = {
+  clientId: 'a58742ce-60cc-4ea1-a9b1-2ea6dd751df1',
+  tenantId: '3ac63ba7-4f34-41f6-85a0-7fb5b9be2bdb',
+  scopes:   ['https://graph.microsoft.com/Files.Read.All'],
+  resource: 'api://intelecsl.github.io/intelec-rellena/a58742ce-60cc-4ea1-a9b1-2ea6dd751df1'
+};
+let msal_ = null;
+
+function getMsal(){
+  if(msal_) return msal_;
+  if(typeof msal === 'undefined') throw new Error('MSAL no disponible');
+  msal_ = new msal.PublicClientApplication({
+    auth: {
+      clientId:    CFG_AUTH.clientId,
+      authority:   'https://login.microsoftonline.com/' + CFG_AUTH.tenantId,
+      redirectUri: location.origin + location.pathname
+    },
+    cache: { cacheLocation: 'localStorage', storeAuthStateInCookie: true }
+  });
+  return msal_;
+}
+
 async function initAuth(){
-  setA('ld','Cargando datos empresa...');
+  setA('ld', 'Conectando...');
+
+  // Nivel 1: Office.auth SSO (requiere webApplicationInfo en manifest)
   try{
-    const tok = await Office.auth.getAccessToken({allowSignInPrompt:false,allowConsentPrompt:false});
-    DATOS = await loadSP(tok);
-    const n=DATOS.razon_social||'INTELEC';
-    const c=DATOS.cif||'';
-    setA('ok','✓ '+n+' · '+c);
-    document.getElementById('hSub').textContent=n+' · '+c;
-    setSt('Datos cargados · selecciona documento');
-    chkNext();
-  }catch(e){
-    // Si falla el SSO, mostrar botón manual
-    setA('err','Error al cargar datos: '+e.message);
-    document.getElementById('btnLogin').style.display='';
-    setSt('Error: '+e.message);
-  }
+    const tok = await Office.auth.getAccessToken({ allowSignInPrompt: false, allowConsentPrompt: false });
+    await cargarDatos(tok);
+    return;
+  } catch(e1){ /* no configurado aún → pasar al nivel 2 */ }
+
+  // Nivel 2: MSAL ssoSilent — usa la sesión activa de M365 en el navegador
+  try{
+    const client = getMsal();
+    await client.handleRedirectPromise().catch(()=>{});
+    const hint = Office.context?.mailbox?.userProfile?.emailAddress || '';
+    const r = await client.ssoSilent({ scopes: CFG_AUTH.scopes, loginHint: hint });
+    await cargarDatos(r.accessToken);
+    return;
+  } catch(e2){ /* sesión no disponible → nivel 3 */ }
+
+  // Nivel 3: token en caché de sesión anterior
+  try{
+    const client = getMsal();
+    const accounts = client.getAllAccounts();
+    if(accounts.length > 0){
+      const r = await client.acquireTokenSilent({ scopes: CFG_AUTH.scopes, account: accounts[0] });
+      await cargarDatos(r.accessToken);
+      return;
+    }
+  } catch(e3){}
+
+  // Sin sesión activa — mostrar botón una sola vez
+  setA('err', 'Haz clic para conectar (solo la primera vez)');
+  document.getElementById('btnLogin').style.display = '';
+  setSt('Conéctate una vez — después es automático');
 }
+
 async function doLogin(){
-  // Reintentar con consentimiento explícito si el SSO silencioso falló
   try{
-    const tok=await Office.auth.getAccessToken({allowSignInPrompt:true,allowConsentPrompt:true});
-    DATOS=await loadSP(tok);
-    document.getElementById('btnLogin').style.display='none';
-    const n=DATOS.razon_social||'INTELEC';
-    setA('ok','✓ '+n);
-    chkNext();
-  }catch(e){setA('err','Error: '+e.message);}
+    const client = getMsal();
+    const r = await client.loginPopup({ scopes: CFG_AUTH.scopes });
+    document.getElementById('btnLogin').style.display = 'none';
+    await cargarDatos(r.accessToken);
+  } catch(e){ setA('err', 'Login cancelado'); }
 }
+
+async function cargarDatos(tok){
+  DATOS = await loadSP(tok);
+  const n = DATOS.razon_social || 'INTELEC';
+  const c = DATOS.cif || '';
+  setA('ok', '✓ ' + n + ' · ' + c);
+  document.getElementById('hSub').textContent = n + ' · ' + c;
+  document.getElementById('btnOut').style.display = '';
+  setSt('Datos cargados · selecciona documento');
+  chkNext();
+}
+
 function doLogout(){
-  DATOS={};
-  setA('err','Datos descargados');
-  document.getElementById('btnNx').disabled=true;
-  document.getElementById('hSub').textContent='Conectando...';
+  DATOS = {};
+  msal_ = null;
+  setA('err', 'Sesión cerrada');
+  document.getElementById('btnLogin').style.display = '';
+  document.getElementById('btnOut').style.display = 'none';
+  document.getElementById('btnNx').disabled = true;
 }
 
 // ── SHAREPOINT ──
@@ -547,9 +600,9 @@ function buildHtml(fields,fname){
   return `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><title>${eH(fname)}</title>
 <style>body{font-family:'Helvetica Neue',Arial,sans-serif;font-size:11pt;color:#111;padding:30px 40px;max-width:800px;margin:0 auto}
 .hdr{display:flex;align-items:center;gap:16px;border-bottom:2px solid #000;padding-bottom:14px;margin-bottom:20px}
-.lb{background:#2B3671;color:#fff;font-size:11px;font-weight:700;padding:8px 10px;border-radius:4px;letter-spacing:.05em}
+.lb{background:#293A5F;color:#fff;font-size:11px;font-weight:700;padding:8px 10px;border-radius:4px;letter-spacing:.05em}
 h1{font-size:14pt;font-weight:700;margin:0 0 2px}.sub{font-size:9pt;color:#666}
-table{width:100%;border-collapse:collapse}th{background:#2B3671;color:#fff;padding:7px 12px;font-size:9pt;text-align:left;font-weight:600}
+table{width:100%;border-collapse:collapse}th{background:#293A5F;color:#fff;padding:7px 12px;font-size:9pt;text-align:left;font-weight:600}
 td{padding:7px 12px;border-bottom:1px solid #e5e5e5}td.l{font-size:9pt;color:#555;width:38%;font-weight:500}td.v{font-size:10pt;font-weight:600}
 .ft{margin-top:28px;padding-top:10px;border-top:1px solid #ddd;font-size:8pt;color:#999;display:flex;justify-content:space-between}
 @media print{@page{margin:1.5cm}}</style>
