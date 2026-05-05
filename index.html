@@ -182,7 +182,7 @@ body{font-family:var(--f);background:var(--bg);color:var(--text);font-size:13px;
     <div class="ht">Rellena Formularios</div>
     <div class="hs" id="hSub">Conectando a SharePoint...</div>
   </div>
-  <div class="ver">v3.0</div>
+  <div class="ver">v3.1</div>
 </div>
 
 <!-- STEPS -->
@@ -409,31 +409,59 @@ async function loadSP(tok){
   return o;
 }
 
-// ── OFFICE.JS — patrón idéntico a Firma Digital ──
+// ── OFFICE.JS — arranque robusto ──
 let offR=false;
-function initOffice(){
-  if(typeof Office==='undefined') return;
-  Office.onReady(info=>{
-    if(info.host===Office.HostType.Outlook){
-      offR=true;
-      loadAtts();
-      initAuth();
-      // Recargar adjuntos cuando el usuario selecciona otro correo
-      try{
-        Office.context.mailbox.addHandlerAsync(
-          Office.EventType.ItemChanged,
-          ()=>{ setTimeout(loadAtts, 150); }
-        );
-      }catch(e){}
-    }
-  });
+
+function bootApp(){
+  // Siempre intentar cargar adjuntos y auth, sin importar el host
+  setSt('Iniciando...');
+  try{ loadAtts(); }catch(e){ console.error('loadAtts inicial:', e); }
+  try{ initAuth(); }catch(e){ console.error('initAuth inicial:', e); }
 }
-if(typeof Office==='undefined'){
-  const s=document.createElement('script');
-  s.src='https://appsforoffice.microsoft.com/lib/1.1/hosted/office.js';
-  s.onload=initOffice;
-  document.head.appendChild(s);
-} else { initOffice(); }
+
+function tryRegisterItemChanged(){
+  try{
+    if(Office.context?.mailbox?.addHandlerAsync){
+      Office.context.mailbox.addHandlerAsync(
+        Office.EventType.ItemChanged,
+        ()=>{ setTimeout(loadAtts, 150); }
+      );
+    }
+  }catch(e){}
+}
+
+function whenOfficeReady(){
+  try{
+    Office.onReady(info=>{
+      offR=true;
+      console.log('Office.onReady: host='+info?.host);
+      tryRegisterItemChanged();
+      bootApp();
+    });
+  }catch(e){
+    console.error('Office.onReady falló:', e);
+    bootApp(); // arrancar igualmente
+  }
+}
+
+// Arranque: si Office.js está cargado, esperar onReady; si no, fallback a 2s
+if(typeof Office!=='undefined'){
+  whenOfficeReady();
+} else {
+  // Fallback: arrancar en 2s aunque Office.js no haya cargado
+  setTimeout(()=>{
+    if(typeof Office!=='undefined') whenOfficeReady();
+    else bootApp();
+  }, 2000);
+}
+
+// Garantía adicional: si en 5s no ha arrancado nada, forzar bootApp
+setTimeout(()=>{
+  if(!offR && document.getElementById('attL').textContent.trim()==='Cargando...'){
+    console.warn('Forzando bootApp tras timeout');
+    bootApp();
+  }
+}, 5000);
 
 // ── ADJUNTOS con diagnóstico ──
 function loadAtts(){
