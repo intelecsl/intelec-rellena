@@ -183,7 +183,7 @@ body{font-family:var(--f);background:var(--bg);color:var(--text);font-size:13px;
     <div class="ht">Rellena Formularios</div>
     <div class="hs" id="hSub">Conectando a SharePoint...</div>
   </div>
-  <div class="ver">v2.1</div>
+  <div class="ver">v2.2</div>
 </div>
 
 <!-- STEPS -->
@@ -416,34 +416,72 @@ if(typeof Office!=='undefined'){
   });
 }
 
-function loadAtts(){
-  const item=Office.context?.mailbox?.item;
-  if(!item){document.getElementById('attL').innerHTML='<div style="font-size:11px;color:var(--t3);">Item no disponible.</div>';return;}
+function renderAtts(atts){
   const sup=['.docx','.doc','.xlsx','.pdf'];
+  // No filtrar isInline en Nuevo Outlook (puede venir undefined)
+  const filtered=atts.filter(a=>sup.some(e=>a.name.toLowerCase().endsWith(e)));
+  if(!filtered.length){
+    document.getElementById('attL').innerHTML=
+      '<div style="font-size:11px;color:var(--text3);padding:6px 0;">Sin adjuntos compatibles.</div>'+
+      '<button class="btn btn-g btn-w mt8" style="font-size:11px;" onclick="loadAtts()">↺ Recargar adjuntos</button>';
+    return;
+  }
+  document.getElementById('attL').innerHTML='';
+  filtered.forEach(a=>{
+    const ext=a.name.split('.').pop().toLowerCase();
+    const d=document.createElement('div');
+    d.className='att-item';
+    d.innerHTML=`<div class="aico ${['doc','docx'].includes(ext)?'docx':ext}">${ext.toUpperCase()}</div><div class="aname">${a.name}</div><div class="asize">${a.size?fmtSz(a.size):''}</div>`;
+    d.onclick=()=>selAtt(a,d);
+    document.getElementById('attL').appendChild(d);
+  });
+}
 
-  function renderAtts(atts){
-    const filtered=atts.filter(a=>!a.isInline&&sup.some(e=>a.name.toLowerCase().endsWith(e)));
-    if(!filtered.length){document.getElementById('attL').innerHTML='<div style="font-size:11px;color:var(--t3);">Sin adjuntos compatibles (DOCX, XLSX, PDF).</div>';return;}
-    document.getElementById('attL').innerHTML='';
-    filtered.forEach(a=>{
-      const ext=a.name.split('.').pop().toLowerCase();
-      const d=document.createElement('div');
-      d.className='att-item';
-      d.innerHTML=`<div class="aico ${['doc','docx'].includes(ext)?'docx':ext}">${ext.toUpperCase()}</div><div class="aname">${a.name}</div><div class="asize">${a.size?fmtSz(a.size):''}</div>`;
-      d.onclick=()=>selAtt(a,d);
-      document.getElementById('attL').appendChild(d);
-    });
+let _attRetries=0;
+function loadAtts(){
+  _attRetries=0;
+  document.getElementById('attL').innerHTML='<div style="font-size:11px;color:var(--text3);">Cargando adjuntos...</div>';
+  _tryLoadAtts();
+}
+
+function _tryLoadAtts(){
+  const item=Office.context?.mailbox?.item;
+  if(!item){
+    document.getElementById('attL').innerHTML='<div style="font-size:11px;color:var(--text3);">Correo no disponible.</div>';
+    return;
   }
 
-  // Nuevo Outlook: usar getAttachmentsAsync
+  // Intento 1: array síncrono (Outlook clásico y a veces Nuevo Outlook)
+  const syncAtts=item.attachments||[];
+  if(syncAtts.length>0){renderAtts(syncAtts);return;}
+
+  // Intento 2: getAttachmentsAsync (Mailbox 1.8+)
   if(typeof item.getAttachmentsAsync==='function'){
     item.getAttachmentsAsync(r=>{
-      if(r.status===Office.AsyncResultStatus.Succeeded) renderAtts(r.value||[]);
-      else renderAtts(item.attachments||[]);
+      if(r.status===Office.AsyncResultStatus.Succeeded&&(r.value||[]).length>0){
+        renderAtts(r.value);
+        return;
+      }
+      // Reintentar hasta 5 veces con delay creciente
+      if(_attRetries<5){
+        _attRetries++;
+        setTimeout(_tryLoadAtts, _attRetries*800);
+      } else {
+        document.getElementById('attL').innerHTML=
+          '<div style="font-size:11px;color:var(--text3);">No se detectaron adjuntos automáticamente.</div>'+
+          '<button class="btn btn-g btn-w mt8" style="font-size:11px;" onclick="loadAtts()">↺ Reintentar</button>';
+      }
     });
   } else {
-    // Outlook clásico: array síncrono
-    renderAtts(item.attachments||[]);
+    // Sin API async — reintentar por si el item no estaba listo
+    if(_attRetries<5){
+      _attRetries++;
+      setTimeout(_tryLoadAtts, _attRetries*600);
+    } else {
+      document.getElementById('attL').innerHTML=
+        '<div style="font-size:11px;color:var(--text3);">Usa el área de carga manual.</div>'+
+        '<button class="btn btn-g btn-w mt8" style="font-size:11px;" onclick="loadAtts()">↺ Reintentar</button>';
+    }
   }
 }
 function selAtt(a,el){
