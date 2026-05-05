@@ -182,7 +182,7 @@ body{font-family:var(--f);background:var(--bg);color:var(--text);font-size:13px;
     <div class="ht">Rellena Formularios</div>
     <div class="hs" id="hSub">Conectando a SharePoint...</div>
   </div>
-  <div class="ver">v3.5</div>
+  <div class="ver">v3.3</div>
 </div>
 
 <!-- STEPS -->
@@ -327,7 +327,6 @@ function getMsal(){
 }
 
 async function initAuth(){
-  __log("initAuth() llamada");
   setA('ld', 'Conectando...');
 
   // Nivel 1: Office.auth SSO (requiere webApplicationInfo en manifest)
@@ -410,142 +409,61 @@ async function loadSP(tok){
   return o;
 }
 
-// ── OFFICE.JS — arranque robusto ──
-let offR=false;
-
-function bootApp(){
-  window.__dbg && window.__dbg("[boot] bootApp() iniciada");
-  __log("bootApp() llamada");
-  // Siempre intentar cargar adjuntos y auth, sin importar el host
-  setSt('Iniciando...');
-  try{ loadAtts(); }catch(e){ console.error('loadAtts inicial:', e); }
-  try{ initAuth(); }catch(e){ console.error('initAuth inicial:', e); }
-}
-
-function tryRegisterItemChanged(){
-  try{
-    if(Office.context?.mailbox?.addHandlerAsync){
-      Office.context.mailbox.addHandlerAsync(
-        Office.EventType.ItemChanged,
-        ()=>{ setTimeout(loadAtts, 150); }
-      );
+// ── OFFICE.JS — patrón Firma Digital ──
+let offR = false;
+function initOffice(){
+  if(typeof Office === 'undefined') return;
+  Office.onReady(info => {
+    offR = true;
+    if(info.host === Office.HostType.Outlook){
+      loadAtts();
+      try{
+        Office.context.mailbox.addHandlerAsync(
+          Office.EventType.ItemChanged,
+          () => setTimeout(loadAtts, 200)
+        );
+      }catch(e){}
     }
-  }catch(e){}
-}
-
-function whenOfficeReady(){
-  window.__dbg && window.__dbg("[boot] whenOfficeReady() llamada");
-  __log("whenOfficeReady() llamada");
-  try{
-    Office.onReady(info=>{
-      window.__dbg && window.__dbg('[boot] Office.onReady disparado, host='+(info&&info.host));
-      offR=true;
-      console.log('Office.onReady: host='+info?.host);
-      tryRegisterItemChanged();
-      bootApp();
-    });
-  }catch(e){
-    console.error('Office.onReady falló:', e);
-    bootApp(); // arrancar igualmente
-  }
-}
-
-// Arranque: si Office.js está cargado, esperar onReady; si no, fallback a 2s
-if(typeof Office!=='undefined'){
-  whenOfficeReady();
-} else {
-  // Fallback: arrancar en 2s aunque Office.js no haya cargado
-  setTimeout(()=>{
-    if(typeof Office!=='undefined') whenOfficeReady();
-    else bootApp();
-  }, 2000);
-}
-
-// Garantía adicional: si en 5s no ha arrancado nada, forzar bootApp
-setTimeout(()=>{
-  if(!offR && document.getElementById('attL').textContent.trim()==='Cargando...'){
-    console.warn('Forzando bootApp tras timeout');
-    bootApp();
-  }
-}, 5000);
-
-// ── ADJUNTOS con diagnóstico ──
-function loadAtts(){
-  window.__dbg && window.__dbg("[boot] loadAtts() llamada");
-  const dbg=[];
-  const log=m=>{ dbg.push(m); console.log('[ADJUNTOS]',m); };
-
-  try{
-    log('Office='+typeof Office);
-    log('mailbox='+(Office.context?.mailbox?'OK':'NO'));
-    const item=Office.context?.mailbox?.item;
-    log('item='+(item?'OK':'NO'));
-
-    if(!item){ _showDbg(dbg, 'item es null/undefined'); return; }
-
-    log('itemType='+item.itemType);
-    log('itemClass='+item.itemClass);
-    log('subject='+(item.subject||'(none)'));
-    log('attachments prop='+(item.attachments===undefined?'undefined':item.attachments===null?'null':'array['+item.attachments.length+']'));
-    log('hasAsync='+(typeof item.getAttachmentsAsync));
-
-    // 1) acceso síncrono
-    const sync=item.attachments;
-    if(Array.isArray(sync)&&sync.length>0){
-      log('Encontrados síncronos: '+sync.length);
-      sync.forEach((a,i)=>log('  ['+i+'] name='+a.name+' size='+a.size+' type='+a.attachmentType+' inline='+a.isInline));
-      const filt=sync.filter(a=>a.name&&/\.(docx|doc|xlsx|pdf)$/i.test(a.name));
-      log('Compatibles: '+filt.length);
-      if(filt.length>0){ _renderAtts(filt); return; }
-    }
-
-    // 2) async (Mailbox 1.8+)
-    if(typeof item.getAttachmentsAsync==='function'){
-      log('Probando getAttachmentsAsync...');
-      item.getAttachmentsAsync(r=>{
-        log('async status='+r.status);
-        if(r.status==='succeeded'||r.status===Office.AsyncResultStatus.Succeeded){
-          const v=r.value||[];
-          log('async attachments: '+v.length);
-          v.forEach((a,i)=>log('  ['+i+'] name='+a.name+' size='+a.size));
-          const filt=v.filter(a=>a.name&&/\.(docx|doc|xlsx|pdf)$/i.test(a.name));
-          if(filt.length>0){ _renderAtts(filt); return; }
-        } else if(r.error){ log('async error: '+r.error.message); }
-        _showDbg(dbg, 'No se encontraron adjuntos via async');
-      });
-      return;
-    }
-
-    _showDbg(dbg, 'No hay adjuntos en attachments[] ni función async');
-  }catch(e){
-    log('EXCEPTION: '+e.message+' - '+e.stack);
-    _showDbg(dbg, 'Excepción capturada');
-  }
-}
-
-function _renderAtts(atts){
-  document.getElementById('attL').innerHTML='';
-  atts.forEach(a=>{
-    const ext=a.name.split('.').pop().toLowerCase();
-    const d=document.createElement('div');
-    d.className='att-item';
-    d.innerHTML=`<div class="aico ${['doc','docx'].includes(ext)?'docx':ext}">${ext.toUpperCase()}</div><div class="aname">${a.name}</div><div class="asize">${a.size?fmtSz(a.size):''}</div>`;
-    d.onclick=()=>selAtt(a,d);
-    document.getElementById('attL').appendChild(d);
+    initAuth();
   });
 }
+if(typeof Office === 'undefined'){
+  const s = document.createElement('script');
+  s.src = 'https://appsforoffice.microsoft.com/lib/1.1/hosted/office.js';
+  s.onload = initOffice;
+  document.head.appendChild(s);
+} else { initOffice(); }
 
-function _showDbg(dbg, summary){
-  const text=dbg.join('\n');
-  document.getElementById('attL').innerHTML=
-    '<button class="btn btn-gold btn-w" style="margin-bottom:10px;padding:10px;font-size:12px;font-weight:600;" onclick="document.getElementById(\'fi\').click()">📎 Cargar archivo manualmente</button>'+
-    '<div style="font-size:11px;color:var(--red);margin-bottom:6px;font-weight:600;">⚠ '+summary+'</div>'+
-    '<pre style="font-size:9px;color:var(--text2);background:var(--bg3);padding:8px;border-radius:4px;border:1px solid var(--border);white-space:pre-wrap;word-break:break-word;max-height:200px;overflow-y:auto;font-family:monospace;line-height:1.4;">'+text.replace(/</g,'&lt;')+'</pre>'+
-    '<div style="display:flex;gap:6px;margin-top:8px;">'+
-    '<button class="btn btn-g" style="flex:1;font-size:11px;" onclick="navigator.clipboard.writeText(document.querySelector(\'pre\').innerText);toast(\'Copiado\')">📋 Copiar log</button>'+
-    '<button class="btn btn-g" style="flex:1;font-size:11px;" onclick="loadAtts()">↺ Reintentar</button>'+
-    '</div>';
+// ── ADJUNTOS — simple, basado en Firma Digital ──
+function loadAtts(){
+  try{
+    const item = Office.context.mailbox.item;
+    const atts = (item?.attachments || []).filter(a =>
+      a.name && /\.(docx|doc|xlsx|pdf)$/i.test(a.name)
+    );
+    if(atts.length === 0){
+      document.getElementById('attL').innerHTML =
+        '<div style="font-size:11px;color:var(--text3);padding:6px 0;">Sin adjuntos compatibles en este correo.</div>'+
+        '<button class="btn btn-gold btn-w mt8" onclick="document.getElementById(\'fi\').click()">📎 Cargar archivo manualmente</button>'+
+        '<button class="btn btn-g btn-w mt8" style="font-size:11px;" onclick="loadAtts()">↺ Recargar</button>';
+      return;
+    }
+    document.getElementById('attL').innerHTML = '';
+    atts.forEach(a => {
+      const ext = a.name.split('.').pop().toLowerCase();
+      const d = document.createElement('div');
+      d.className = 'att-item';
+      d.innerHTML = `<div class="aico ${['doc','docx'].includes(ext)?'docx':ext}">${ext.toUpperCase()}</div><div class="aname">${a.name}</div><div class="asize">${a.size?fmtSz(a.size):''}</div>`;
+      d.onclick = () => selAtt(a, d);
+      document.getElementById('attL').appendChild(d);
+    });
+  } catch(e){
+    document.getElementById('attL').innerHTML =
+      '<div style="font-size:11px;color:var(--red);">Error: '+e.message+'</div>'+
+      '<button class="btn btn-gold btn-w mt8" onclick="document.getElementById(\'fi\').click()">📎 Cargar archivo manualmente</button>';
+  }
 }
+
 
 function selAtt(att,el){
   document.querySelectorAll('.att-item').forEach(i=>i.classList.remove('selected'));
@@ -749,15 +667,10 @@ function sl(ms){return new Promise(r=>setTimeout(r,ms));}
 let _tt;
 function toast(m){const t=document.getElementById('toast');t.textContent=m;t.classList.add('on');clearTimeout(_tt);_tt=setTimeout(()=>t.classList.remove('on'),2400);}
 
-// ── BOOT ──
-window.addEventListener('load',()=>{
-  const k=localStorage.getItem('int_ak');if(k)document.getElementById('ak').value=k;
-
-  // Si Office.onReady no se dispara en 4s → no estamos en Outlook
-  setTimeout(()=>{
-    if(!offR)document.getElementById('attL').innerHTML='<div style="font-size:11px;color:var(--t3);">Fuera de Outlook — usa carga manual.</div>';
-  },4000);
-  setSt('Iniciando...');
+// ── Cargar API key persistida al cargar ──
+window.addEventListener('load', () => {
+  const k = localStorage.getItem('int_ak');
+  if(k) document.getElementById('ak').value = k;
 });
 </script>
 </body>
