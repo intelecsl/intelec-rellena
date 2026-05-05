@@ -182,7 +182,7 @@ body{font-family:var(--f);background:var(--bg);color:var(--text);font-size:13px;
     <div class="ht">Rellena Formularios</div>
     <div class="hs" id="hSub">Conectando a SharePoint...</div>
   </div>
-  <div class="ver">v3.3</div>
+  <div class="ver">v3.5</div>
 </div>
 
 <!-- STEPS -->
@@ -295,39 +295,6 @@ body{font-family:var(--f);background:var(--bg);color:var(--text);font-size:13px;
 <div class="toast" id="toast"></div>
 
 <script>
-// ═══ DIAGNÓSTICO TEMPRANO — captura errores antes de cualquier cosa ═══
-(function(){
-  function showError(msg){
-    try{
-      let box=document.getElementById('__err');
-      if(!box){
-        box=document.createElement('div');
-        box.id='__err';
-        box.style.cssText='position:fixed;top:0;left:0;right:0;background:#fff;color:#000;font:11px monospace;padding:8px;z-index:99999;border-bottom:3px solid red;max-height:50%;overflow:auto;white-space:pre-wrap;word-break:break-word';
-        (document.body||document.documentElement).appendChild(box);
-      }
-      box.textContent += '\n[ERROR] '+msg;
-    }catch(e){}
-  }
-  window.addEventListener('error',e=>showError((e.message||'?')+' @ '+(e.filename||'').split('/').pop()+':'+e.lineno));
-  window.addEventListener('unhandledrejection',e=>showError('Promise: '+(e.reason?.message||e.reason||'?')));
-  window.__log=function(m){ console.log(m); try{
-    let p=document.getElementById('__log');
-    if(!p){
-      p=document.createElement('div');
-      p.id='__log';
-      p.style.cssText='position:fixed;bottom:0;left:0;right:0;background:#000;color:#0f0;font:10px monospace;padding:6px;z-index:99998;max-height:35%;overflow:auto;white-space:pre-wrap;border-top:2px solid #0f0';
-      (document.body||document.documentElement).appendChild(p);
-      const btn=document.createElement('button');
-      btn.textContent='✕';
-      btn.style.cssText='position:absolute;top:2px;right:4px;background:#333;color:#fff;border:0;padding:2px 6px;cursor:pointer;font-size:10px';
-      btn.onclick=()=>p.style.display='none';
-      p.appendChild(btn);
-    }
-    p.appendChild(document.createTextNode('\n'+m));
-    p.scrollTop=p.scrollHeight;
-  }catch(e){} };
-})();
 const CFG={
   driveId:'b!0_eiUrX67U-XofAwHJeTqs9SWxlTMfBFiLMucSxWuHdaAgQD43CcQJQGO2DrfgAN',
   fileId:'01GTLRBE3TGRLYTNGMQBF3DD7EGVY6QE5E',
@@ -569,8 +536,7 @@ function _renderAtts(atts){
 }
 
 function _showDbg(dbg, summary){
-  const text=dbg.join('
-');
+  const text=dbg.join('\n');
   document.getElementById('attL').innerHTML=
     '<button class="btn btn-gold btn-w" style="margin-bottom:10px;padding:10px;font-size:12px;font-weight:600;" onclick="document.getElementById(\'fi\').click()">📎 Cargar archivo manualmente</button>'+
     '<div style="font-size:11px;color:var(--red);margin-bottom:6px;font-weight:600;">⚠ '+summary+'</div>'+
@@ -750,20 +716,6 @@ td{padding:7px 12px;border-bottom:1px solid #e5e5e5}td.l{font-size:9pt;color:#55
 .ft{margin-top:28px;padding-top:10px;border-top:1px solid #ddd;font-size:8pt;color:#999;display:flex;justify-content:space-between}
 @media print{@page{margin:1.5cm}}</style>
 </head><body>
-<div id="DBG" style="background:#000;color:#0f0;font:11px monospace;padding:10px;white-space:pre-wrap;word-break:break-all;border-bottom:3px solid #ff0;max-height:40vh;overflow:auto">[DBG] HTML cargado · esperando JS...</div>
-<script>
-// Debug que se ejecuta ANTES de cualquier otra cosa
-(function(){
-  var d=document.getElementById('DBG');
-  function add(m){ try{ d.textContent += '\n'+m; }catch(e){} }
-  add('[1] Script inicial OK · '+new Date().toLocaleTimeString());
-  add('[2] location.href='+location.href);
-  add('[3] Office='+typeof window.Office);
-  window.addEventListener('error',function(e){ add('[ERR] '+(e.message||'?')+' @ '+(e.filename||'').split('/').pop()+':'+e.lineno); });
-  window.addEventListener('unhandledrejection',function(e){ add('[REJ] '+(e.reason&&e.reason.message||e.reason||'?')); });
-  window.__dbg=add;
-})();
-</script>
 <div class="hdr"><div class="lb">INTELEC</div><div><h1>${eH(fname)}</h1><div class="sub">${eH(n)} · CIF ${eH(c)} · ${new Date().toLocaleDateString('es-ES')}</div></div></div>
 <table><tr><th>Campo</th><th>Valor rellenado</th></tr>${rows}</table>
 <div class="ft"><span>${eH(n)} · ${eH(d)}</span><span>Intelec Rellena Formularios v1.1</span></div>
@@ -807,14 +759,6 @@ window.addEventListener('load',()=>{
   },4000);
   setSt('Iniciando...');
 });
-</script>
-<script>
-window.__dbg && window.__dbg("[end] Fin del script principal alcanzado · todo cargado OK");
-// Forzar arranque después de 1s si nada ocurre
-setTimeout(function(){
-  window.__dbg && window.__dbg("[1s] Forzando bootApp()");
-  try{ bootApp(); }catch(e){ window.__dbg && window.__dbg("[ERR bootApp] "+e.message); }
-}, 1000);
 </script>
 </body>
 </html>
