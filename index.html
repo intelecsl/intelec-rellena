@@ -183,7 +183,7 @@ body{font-family:var(--f);background:var(--bg);color:var(--text);font-size:13px;
     <div class="ht">Rellena Formularios</div>
     <div class="hs" id="hSub">Conectando a SharePoint...</div>
   </div>
-  <div class="ver">v2.2</div>
+  <div class="ver">v2.3</div>
 </div>
 
 <!-- STEPS -->
@@ -207,8 +207,11 @@ body{font-family:var(--f);background:var(--bg);color:var(--text);font-size:13px;
     <button class="btn btn-login" id="btnLogin" onclick="doLogin()" style="display:none;">Iniciar sesión con Microsoft 365</button>
     <button class="btn btn-g btn-w" id="btnOut" onclick="doLogout()" style="display:none;font-size:11px;margin-bottom:10px;">Cerrar sesión</button>
 
-    <div class="stitle-block mt12"><span>Clave API Anthropic</span></div>
-    <div class="akrow">
+    <div style="margin-top:10px;margin-bottom:4px;display:flex;align-items:center;justify-content:space-between;">
+      <span style="font-size:10px;color:var(--text3);">Clave API Anthropic</span>
+      <button onclick="document.getElementById('akWrap').style.display=document.getElementById('akWrap').style.display==='none'?'flex':'none'" style="font-size:10px;background:none;border:none;color:var(--gold);cursor:pointer;padding:0;">⚙ configurar</button>
+    </div>
+    <div id="akWrap" class="akrow" style="display:none;">
       <input type="password" id="ak" placeholder="sk-ant-api03-..." oninput="saveAk(this.value)">
       <button class="btn btn-g" onclick="togAk()" style="padding:7px 10px;font-size:11px;">ver</button>
     </div>
@@ -370,7 +373,10 @@ async function doLogin(){
   } catch(e){ setA('err', 'Login cancelado'); }
 }
 
+let _gTok = null;
+async function getStoredToken(){ return _gTok; }
 async function cargarDatos(tok){
+  _gTok = tok;
   DATOS = await loadSP(tok);
   const n = DATOS.razon_social || 'INTELEC';
   const c = DATOS.cif || '';
@@ -411,78 +417,87 @@ if(typeof Office!=='undefined'){
   Office.onReady(info=>{
     offR=true;
     document.getElementById('attL').innerHTML='<div style="font-size:11px;color:var(--t3);">Cargando adjuntos...</div>';
-    try{ loadAtts(); }catch(e){ document.getElementById('attL').innerHTML='<div style="font-size:11px;color:var(--t3);">'+e.message+'</div>'; }
-    initAuth();
+    initAuth().then(()=>loadAtts()).catch(()=>loadAtts());
   });
 }
 
-function renderAtts(atts){
+function _renderAttList(atts){
   const sup=['.docx','.doc','.xlsx','.pdf'];
-  // No filtrar isInline en Nuevo Outlook (puede venir undefined)
-  const filtered=atts.filter(a=>sup.some(e=>a.name.toLowerCase().endsWith(e)));
+  const filtered=atts.filter(a=>sup.some(e=>(a.name||'').toLowerCase().endsWith(e)));
   if(!filtered.length){
     document.getElementById('attL').innerHTML=
-      '<div style="font-size:11px;color:var(--text3);padding:6px 0;">Sin adjuntos compatibles.</div>'+
-      '<button class="btn btn-g btn-w mt8" style="font-size:11px;" onclick="loadAtts()">↺ Recargar adjuntos</button>';
+      '<div style="font-size:11px;color:var(--text3);">Sin adjuntos compatibles.</div>'+
+      '<button class="btn btn-g btn-w mt8" style="font-size:11px;" onclick="loadAtts()">↺ Reintentar</button>';
     return;
   }
   document.getElementById('attL').innerHTML='';
   filtered.forEach(a=>{
-    const ext=a.name.split('.').pop().toLowerCase();
+    const ext=(a.name||'file').split('.').pop().toLowerCase();
+    const isGraph=!!a.id&&!a.attachmentType; // Graph API attachment
     const d=document.createElement('div');
     d.className='att-item';
     d.innerHTML=`<div class="aico ${['doc','docx'].includes(ext)?'docx':ext}">${ext.toUpperCase()}</div><div class="aname">${a.name}</div><div class="asize">${a.size?fmtSz(a.size):''}</div>`;
-    d.onclick=()=>selAtt(a,d);
+    d.onclick=()=>{ isGraph ? selAttGraph(a,d) : selAtt(a,d); };
     document.getElementById('attL').appendChild(d);
   });
 }
 
-let _attRetries=0;
-function loadAtts(){
-  _attRetries=0;
-  document.getElementById('attL').innerHTML='<div style="font-size:11px;color:var(--text3);">Cargando adjuntos...</div>';
-  _tryLoadAtts();
-}
-
-function _tryLoadAtts(){
+async function loadAtts(){
+  document.getElementById('attL').innerHTML='<div style="font-size:11px;color:var(--text3);">Cargando...</div>';
   const item=Office.context?.mailbox?.item;
-  if(!item){
-    document.getElementById('attL').innerHTML='<div style="font-size:11px;color:var(--text3);">Correo no disponible.</div>';
-    return;
-  }
+  if(!item){ document.getElementById('attL').innerHTML='<div style="font-size:11px;color:var(--text3);">Correo no disponible.</div>'; return; }
 
-  // Intento 1: array síncrono (Outlook clásico y a veces Nuevo Outlook)
-  const syncAtts=item.attachments||[];
-  if(syncAtts.length>0){renderAtts(syncAtts);return;}
+  // Método 1: Graph API (más fiable en Nuevo Outlook)
+  try{
+    const tok=await getStoredToken();
+    if(tok && item.itemId){
+      const restId=Office.context.mailbox.convertToRestId(item.itemId, Office.MailboxEnums.RestVersion.v2_0);
+      const r=await fetch(`https://graph.microsoft.com/v1.0/me/messages/${encodeURIComponent(restId)}/attachments?$select=id,name,size,isInline,contentType`,
+        {headers:{Authorization:'Bearer '+tok}});
+      if(r.ok){
+        const d=await r.json();
+        const atts=(d.value||[]).filter(a=>!a.isInline);
+        if(atts.length>0){ _renderAttList(atts); return; }
+      }
+    }
+  }catch(e){}
 
-  // Intento 2: getAttachmentsAsync (Mailbox 1.8+)
+  // Método 2: Office.js síncrono
+  const sync=item.attachments||[];
+  if(sync.length>0){ _renderAttList(sync); return; }
+
+  // Método 3: getAttachmentsAsync
   if(typeof item.getAttachmentsAsync==='function'){
     item.getAttachmentsAsync(r=>{
-      if(r.status===Office.AsyncResultStatus.Succeeded&&(r.value||[]).length>0){
-        renderAtts(r.value);
-        return;
-      }
-      // Reintentar hasta 5 veces con delay creciente
-      if(_attRetries<5){
-        _attRetries++;
-        setTimeout(_tryLoadAtts, _attRetries*800);
-      } else {
-        document.getElementById('attL').innerHTML=
-          '<div style="font-size:11px;color:var(--text3);">No se detectaron adjuntos automáticamente.</div>'+
-          '<button class="btn btn-g btn-w mt8" style="font-size:11px;" onclick="loadAtts()">↺ Reintentar</button>';
-      }
+      if(r.status===Office.AsyncResultStatus.Succeeded&&(r.value||[]).length>0){ _renderAttList(r.value); return; }
+      document.getElementById('attL').innerHTML=
+        '<div style="font-size:11px;color:var(--text3);">No se encontraron adjuntos.</div>'+
+        '<button class="btn btn-g btn-w mt8" style="font-size:11px;" onclick="loadAtts()">↺ Reintentar</button>';
     });
   } else {
-    // Sin API async — reintentar por si el item no estaba listo
-    if(_attRetries<5){
-      _attRetries++;
-      setTimeout(_tryLoadAtts, _attRetries*600);
-    } else {
-      document.getElementById('attL').innerHTML=
-        '<div style="font-size:11px;color:var(--text3);">Usa el área de carga manual.</div>'+
-        '<button class="btn btn-g btn-w mt8" style="font-size:11px;" onclick="loadAtts()">↺ Reintentar</button>';
-    }
+    document.getElementById('attL').innerHTML=
+      '<div style="font-size:11px;color:var(--text3);">Sin adjuntos detectados.</div>'+
+      '<button class="btn btn-g btn-w mt8" style="font-size:11px;" onclick="loadAtts()">↺ Reintentar</button>';
   }
+}
+
+// Seleccionar adjunto vía Graph API (Nuevo Outlook)
+async function selAttGraph(att, el){
+  document.querySelectorAll('.att-item').forEach(i=>i.classList.remove('selected'));
+  el.classList.add('selected'); setSt('Descargando...');
+  try{
+    const tok=await getStoredToken();
+    const item=Office.context.mailbox.item;
+    const restId=Office.context.mailbox.convertToRestId(item.itemId, Office.MailboxEnums.RestVersion.v2_0);
+    const r=await fetch(`https://graph.microsoft.com/v1.0/me/messages/${encodeURIComponent(restId)}/attachments/${att.id}?$select=contentBytes`,
+      {headers:{Authorization:'Bearer '+tok}});
+    const d=await r.json();
+    const bin=atob(d.contentBytes); const buf=new Uint8Array(bin.length);
+    for(let i=0;i<bin.length;i++) buf[i]=bin.charCodeAt(i);
+    const ext=att.name.split('.').pop().toLowerCase();
+    ST.file={name:att.name,type:ext==='doc'?'docx':ext,size:buf.byteLength,buf:buf.buffer};
+    showSF(att.name,buf.byteLength,ext); chkNext(); setSt('Listo · '+att.name);
+  }catch(e){ toast('Error al descargar: '+e.message); }
 }
 function selAtt(a,el){
   document.querySelectorAll('.att-item').forEach(i=>i.classList.remove('selected'));el.classList.add('selected');setSt('Descargando...');
