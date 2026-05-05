@@ -9,166 +9,288 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
 <style>
-@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Raleway:wght@400;500;600;700&family=Open+Sans:wght@400;500;600&display=swap');
 :root{
-  --bg:#0f0f0f;--bg2:#181818;--bg3:#222;--bg4:#2a2a2a;
-  --b:rgba(255,255,255,.07);--b2:rgba(255,255,255,.13);
-  --a:#e8f03a;--a2:rgba(232,240,58,.1);
-  --bl:#3b9eff;--bl2:rgba(59,158,255,.1);
-  --gr:#4ade80;--gr2:rgba(74,222,128,.1);
-  --rd:#f87171;--rd2:rgba(248,113,113,.1);
-  --or:#fb923c;
-  --t:#f0f0f0;--t2:rgba(240,240,240,.5);--t3:rgba(240,240,240,.28);
-  --f:'IBM Plex Sans',sans-serif;--m:'IBM Plex Mono',monospace;--r:6px;--r2:10px;
+  --navy:#2B3671;
+  --navy2:#364280;
+  --navy3:#1e2a5a;
+  --gold:#F9D100;
+  --gold2:rgba(249,209,0,0.12);
+  --gold3:rgba(249,209,0,0.25);
+  --bg:#f4f6fb;
+  --bg2:#ffffff;
+  --bg3:#edf0f7;
+  --border:#dde3ee;
+  --border2:#b8c4d8;
+  --text:#0d2b55;
+  --text2:#4a6280;
+  --text3:#8a9cb5;
+  --green:#0e9f62;
+  --green2:rgba(14,159,98,0.1);
+  --red:#d63031;
+  --red2:rgba(214,48,49,0.1);
+  --orange:#e67e22;
+  --f:'Open Sans',sans-serif;
+  --fh:'Raleway',sans-serif;
+  --r:6px;--r2:10px;
 }
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{height:100%;overflow:hidden}
-body{font-family:var(--f);background:var(--bg);color:var(--t);font-size:13px;line-height:1.5;display:flex;flex-direction:column}
-.hdr{padding:11px 14px 10px;border-bottom:1px solid var(--b);display:flex;align-items:center;gap:9px;flex-shrink:0}
-.logo{width:30px;height:30px;background:var(--a);border-radius:4px;display:flex;align-items:center;justify-content:center;font-family:var(--m);font-size:10px;font-weight:500;color:#0f0f0f;flex-shrink:0}
-.htx{flex:1;min-width:0}.ht{font-size:12.5px;font-weight:600}.hs{font-size:10px;color:var(--t3);font-family:var(--m)}
-.ver{font-family:var(--m);font-size:9.5px;color:var(--a);border:1px solid rgba(232,240,58,.3);padding:2px 5px;border-radius:3px;flex-shrink:0}
-.steps{display:flex;padding:10px 14px 9px;border-bottom:1px solid var(--b);flex-shrink:0}
-.step{flex:1;display:flex;align-items:center;gap:6px;position:relative}
-.step:not(:last-child)::after{content:'';position:absolute;right:0;top:50%;transform:translateY(-50%);width:12px;height:1px;background:var(--b2)}
-.sd{width:20px;height:20px;border-radius:50%;border:1.5px solid var(--b2);display:flex;align-items:center;justify-content:center;font-size:9px;font-family:var(--m);color:var(--t3);flex-shrink:0;transition:.2s}
-.sl{font-size:10px;color:var(--t3);transition:.2s;white-space:nowrap}
-.step.active .sd{border-color:var(--a);color:var(--a);background:var(--a2)}.step.active .sl{color:var(--t)}
-.step.done .sd{border-color:var(--gr);background:var(--gr2);color:var(--gr)}.step.done .sl{color:var(--t2)}
-.body{flex:1;overflow-y:auto;overflow-x:hidden}
-.pane{display:none;padding:14px}.pane.active{display:block}
-.stitle{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--t3);margin-bottom:8px;padding-bottom:5px;border-bottom:1px solid var(--b)}
-.card{background:var(--bg2);border:1px solid var(--b);border-radius:var(--r2);padding:11px 12px;margin-bottom:8px}
-.att-item{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:var(--r);border:1px solid var(--b);background:var(--bg3);margin-bottom:6px;cursor:pointer;transition:.15s}
-.att-item:hover{border-color:var(--b2);background:var(--bg4)}.att-item.selected{border-color:rgba(232,240,58,.4);background:var(--a2)}
-.aico{width:32px;height:32px;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:10px;font-family:var(--m);font-weight:500;flex-shrink:0}
-.aico.docx{background:rgba(59,158,255,.15);color:var(--bl)}.aico.xlsx{background:var(--gr2);color:var(--gr)}.aico.pdf{background:var(--rd2);color:var(--rd)}.aico.other{background:var(--bg4);color:var(--t3)}
-.aname{font-size:12px;font-weight:500;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.asize{font-size:10px;color:var(--t3);font-family:var(--m);flex-shrink:0}
-.upzone{border:1.5px dashed var(--b2);border-radius:var(--r2);padding:22px 14px;text-align:center;cursor:pointer;transition:.2s;margin-top:10px}
-.upzone:hover,.upzone.drag{border-color:rgba(232,240,58,.4);background:var(--a2)}
-.upzone p{font-size:11px;color:var(--t3);margin-top:4px}.upzone strong{color:var(--a);font-size:12px}
-#fi{display:none}
-.frow{display:flex;align-items:flex-start;gap:8px;padding:7px 0;border-bottom:1px solid var(--b)}
-.frow:last-child{border-bottom:none}
-.ffrom{flex:1;min-width:0}.fkey{font-size:10px;color:var(--t3);margin-bottom:1px}
-.forig{font-size:11px;color:var(--t2);font-style:italic;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.farrow{font-size:14px;color:var(--a);flex-shrink:0;padding-top:12px}
-.fto{flex:1;min-width:0}
-.fvi{width:100%;background:var(--bg3);border:1px solid var(--b2);border-radius:4px;padding:5px 7px;color:var(--t);font-family:var(--f);font-size:12px;outline:none;transition:.15s}
-.fvi:focus{border-color:rgba(232,240,58,.4)}
-.fsk{width:22px;height:22px;border:1px solid var(--b2);background:transparent;border-radius:4px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:14px;transition:.15s;font-size:12px;color:var(--t3)}
-.fsk:hover,.fsk.sk{background:var(--rd2);border-color:var(--rd);color:var(--rd)}
-.pgbar{height:3px;background:var(--bg3);border-radius:99px;overflow:hidden;margin:8px 0 4px}
-.pgfill{height:100%;background:var(--a);border-radius:99px;transition:width .4s;width:0}
-.pglbl{font-size:10px;color:var(--t3);font-family:var(--m)}
-.spin{width:32px;height:32px;border:2.5px solid var(--b2);border-top-color:var(--a);border-radius:50%;animation:sp .8s linear infinite;margin:0 auto}
-@keyframes sp{to{transform:rotate(360deg)}}
-.ctr{text-align:center;padding:30px 14px}.ctr p{font-size:12px;color:var(--t2);margin-top:10px}.ctr small{font-size:10px;color:var(--t3);font-family:var(--m)}
-.pill{display:inline-flex;align-items:center;gap:4px;font-size:10px;font-family:var(--m);padding:2px 7px;border-radius:99px}
-.pill.ok{background:var(--gr2);color:var(--gr);border:1px solid rgba(74,222,128,.3)}
-.pill.info{background:var(--bl2);color:var(--bl);border:1px solid rgba(59,158,255,.3)}
-.pill.err{background:var(--rd2);color:var(--rd);border:1px solid rgba(248,113,113,.3)}
-.pill.ld{background:rgba(251,146,60,.1);color:var(--or);border:1px solid rgba(251,146,60,.3)}
-.btn{padding:8px 14px;border-radius:var(--r);font-family:var(--f);font-size:12.5px;cursor:pointer;transition:.15s;border:none;display:inline-flex;align-items:center;justify-content:center;gap:6px}
-.btn-p{background:var(--a);color:#0f0f0f;font-weight:600}.btn-p:hover{opacity:.88}.btn-p:disabled{opacity:.35;cursor:default}
-.btn-g{background:transparent;color:var(--t2);border:1px solid var(--b2)}.btn-g:hover{background:var(--bg3);color:var(--t)}
-.btn-bl{background:var(--bl2);color:var(--bl);border:1px solid rgba(59,158,255,.25)}.btn-bl:hover{background:rgba(59,158,255,.2)}
-.btn-gr{background:var(--gr2);color:var(--gr);border:1px solid rgba(74,222,128,.25)}.btn-gr:hover{background:rgba(74,222,128,.2)}
-.btn-w{width:100%}
-.rbox{background:var(--bg2);border:1px solid rgba(74,222,128,.25);border-radius:var(--r2);padding:14px;margin-bottom:10px;text-align:center}
-.dlrow{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:12px}
-.abox{background:var(--bg2);border:1px solid rgba(59,158,255,.25);border-radius:var(--r2);padding:14px;margin-bottom:10px}
-.abox h3{font-size:13px;font-weight:600;margin-bottom:5px;color:var(--bl)}
-.abox p{font-size:11px;color:var(--t2);line-height:1.6}
-.asts{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:var(--r);background:var(--bg3);margin-bottom:8px;font-size:11px}
+body{font-family:var(--f);background:var(--bg);color:var(--text);font-size:13px;line-height:1.5;display:flex;flex-direction:column}
+
+/* ── HEADER ── */
+.hdr{background:var(--navy);padding:10px 14px;display:flex;align-items:center;gap:10px;flex-shrink:0;box-shadow:0 2px 8px rgba(13,43,85,0.25)}
+.hdr-logo{height:28px;width:auto;flex-shrink:0}
+.hdr-divider{width:1px;height:24px;background:rgba(255,255,255,0.2);flex-shrink:0}
+.htx{flex:1;min-width:0}
+.ht{font-family:var(--fh);font-size:12px;font-weight:600;color:#fff;letter-spacing:.02em}
+.hs{font-size:10px;color:rgba(255,255,255,0.55);margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ver{font-size:9.5px;color:var(--gold);border:1px solid rgba(245,166,35,0.4);padding:2px 6px;border-radius:3px;flex-shrink:0;font-family:monospace;font-weight:600}
+
+/* ── STEPS ── */
+.steps{background:var(--bg2);display:flex;border-bottom:2px solid var(--border);flex-shrink:0}
+.step{flex:1;display:flex;align-items:center;justify-content:center;gap:6px;padding:10px 6px;position:relative;cursor:default}
+.step:not(:last-child)::after{content:'›';position:absolute;right:-6px;top:50%;transform:translateY(-50%);color:var(--text3);font-size:16px;z-index:1}
+.sd{width:20px;height:20px;border-radius:50%;border:2px solid var(--border2);display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;color:var(--text3);flex-shrink:0;transition:.2s;font-family:var(--fh)}
+.sl{font-size:10px;color:var(--text3);transition:.2s;white-space:nowrap;font-weight:500}
+.step.active .sd{border-color:var(--gold);color:var(--navy);background:var(--gold)}
+.step.active .sl{color:var(--navy);font-weight:600}
+.step.done .sd{border-color:var(--green);background:var(--green);color:#fff}
+.step.done .sl{color:var(--green)}
+
+/* ── BODY ── */
+.body{flex:1;overflow-y:auto;overflow-x:hidden;padding:14px}
+.pane{display:none}.pane.active{display:block}
+
+/* ── SECTION TITLE ── */
+.stitle{font-family:var(--fh);font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--navy2);margin-bottom:8px;padding-bottom:5px;border-bottom:2px solid var(--gold);display:inline-block}
+.stitle-block{width:100%;border-bottom:1px solid var(--border);padding-bottom:5px;margin-bottom:8px}
+.stitle-block span{font-family:var(--fh);font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--navy2);border-bottom:2px solid var(--gold);padding-bottom:5px}
+
+/* ── CARDS ── */
+.card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--r2);padding:12px 14px;margin-bottom:10px;box-shadow:0 1px 4px rgba(13,43,85,0.06)}
+.card-accent{border-left:3px solid var(--gold)}
+
+/* ── AUTH BOX ── */
+.abox{background:linear-gradient(135deg,#0d2b55 0%,#1a3d6e 100%);border-radius:var(--r2);padding:14px;margin-bottom:10px;color:#fff}
+.abox p{font-size:11px;color:rgba(255,255,255,0.7);line-height:1.6;margin-top:4px}
+.abox h3{font-family:var(--fh);font-size:13px;font-weight:600;color:#fff;display:flex;align-items:center;gap:7px}
+.abox h3::before{content:'';width:8px;height:8px;border-radius:50%;background:var(--gold);flex-shrink:0}
+.asts{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:var(--r);background:var(--bg3);border:1px solid var(--border);margin-bottom:8px;font-size:11px;color:var(--text2)}
 .dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
-.dot.ok{background:var(--gr)}.dot.err{background:var(--rd)}.dot.ld{background:var(--or);animation:pl 1s ease-in-out infinite}
+.dot.ok{background:var(--green)}.dot.err{background:var(--red)}.dot.ld{background:var(--gold);animation:pl 1s ease-in-out infinite}
 @keyframes pl{0%,100%{opacity:1}50%{opacity:.3}}
-.akrow{display:flex;gap:6px;margin-bottom:8px}
-.akrow input{flex:1;background:var(--bg3);border:1px solid var(--b2);border-radius:4px;padding:7px 9px;color:var(--t);font-family:var(--m);font-size:11px;outline:none}
-.akrow input:focus{border-color:rgba(232,240,58,.4)}.akrow input::placeholder{color:var(--t3)}
-.ftr{padding:10px 14px;border-top:1px solid var(--b);display:flex;align-items:center;justify-content:space-between;flex-shrink:0;gap:8px}
-.fts{font-size:10px;color:var(--t3);font-family:var(--m);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.toast{position:fixed;bottom:54px;left:50%;transform:translateX(-50%) translateY(6px);background:var(--bg3);border:1px solid var(--b2);color:var(--t2);padding:5px 12px;border-radius:99px;font-size:10px;font-family:var(--m);opacity:0;transition:.2s;pointer-events:none;white-space:nowrap;z-index:999}
+
+/* ── API KEY ── */
+.akrow{display:flex;gap:6px;margin-bottom:10px}
+.akrow input{flex:1;background:var(--bg3);border:1px solid var(--border);border-radius:var(--r);padding:7px 10px;color:var(--text);font-family:var(--f);font-size:11.5px;outline:none;transition:.15s}
+.akrow input:focus{border-color:var(--gold);box-shadow:0 0 0 3px var(--gold2)}
+.akrow input::placeholder{color:var(--text3)}
+
+/* ── ATTACHMENTS ── */
+.att-item{display:flex;align-items:center;gap:10px;padding:9px 11px;border-radius:var(--r);border:1px solid var(--border);background:var(--bg2);margin-bottom:6px;cursor:pointer;transition:.15s;box-shadow:0 1px 3px rgba(13,43,85,0.05)}
+.att-item:hover{border-color:var(--gold);background:var(--gold2);box-shadow:0 2px 6px rgba(13,43,85,0.1)}
+.att-item.selected{border-color:var(--gold);background:var(--gold2);border-width:2px}
+.aico{width:34px;height:34px;border-radius:var(--r);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;flex-shrink:0;font-family:monospace}
+.aico.docx{background:#dce8ff;color:#1a4fa0}.aico.xlsx{background:#d4f5e3;color:#0a6e3f}.aico.pdf{background:#ffe0de;color:#c0392b}.aico.other{background:var(--bg3);color:var(--text3)}
+.aname{font-size:12px;font-weight:600;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text)}
+.asize{font-size:10px;color:var(--text3);flex-shrink:0;font-family:monospace}
+
+/* ── UPLOAD ── */
+.upzone{border:2px dashed var(--border2);border-radius:var(--r2);padding:20px 14px;text-align:center;cursor:pointer;transition:.2s;margin-top:8px;background:var(--bg2)}
+.upzone:hover,.upzone.drag{border-color:var(--gold);background:var(--gold2)}
+.upzone-icon{font-size:24px;margin-bottom:6px;display:block}
+.upzone strong{color:var(--navy);font-family:var(--fh);font-size:12px;font-weight:600}
+.upzone p{font-size:11px;color:var(--text3);margin-top:3px}
+#fi{display:none}
+
+/* ── FIELD MAPPING ── */
+.frow{display:flex;align-items:flex-start;gap:8px;padding:7px 0;border-bottom:1px solid var(--border)}
+.frow:last-child{border-bottom:none}
+.ffrom{flex:1;min-width:0}.fkey{font-size:10px;color:var(--text3);margin-bottom:1px;font-weight:600;text-transform:uppercase;letter-spacing:.04em}
+.forig{font-size:11px;color:var(--text2);font-style:italic;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.farrow{font-size:16px;color:var(--gold);flex-shrink:0;padding-top:11px;font-weight:700}
+.fto{flex:1;min-width:0}
+.fvi{width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:var(--r);padding:5px 8px;color:var(--text);font-family:var(--f);font-size:12px;outline:none;transition:.15s}
+.fvi:focus{border-color:var(--gold);box-shadow:0 0 0 2px var(--gold2)}
+.fsk{width:22px;height:22px;border:1px solid var(--border2);background:transparent;border-radius:var(--r);cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:13px;transition:.15s;font-size:11px;color:var(--text3)}
+.fsk:hover,.fsk.sk{background:var(--red2);border-color:var(--red);color:var(--red)}
+
+/* ── PROGRESS ── */
+.pgbar{height:4px;background:var(--bg3);border-radius:99px;overflow:hidden;margin:8px 0 4px;border:1px solid var(--border)}
+.pgfill{height:100%;background:linear-gradient(90deg,var(--navy),var(--gold));border-radius:99px;transition:width .4s;width:0}
+.pglbl{font-size:10px;color:var(--text3);font-family:monospace}
+
+/* ── SPINNER ── */
+.spin{width:32px;height:32px;border:3px solid var(--border);border-top-color:var(--gold);border-radius:50%;animation:sp .8s linear infinite;margin:0 auto}
+@keyframes sp{to{transform:rotate(360deg)}}
+.ctr{text-align:center;padding:28px 14px}
+.ctr p{font-size:12px;color:var(--text2);margin-top:10px;font-weight:500}
+.ctr small{font-size:10px;color:var(--text3);font-family:monospace}
+
+/* ── PILLS ── */
+.pill{display:inline-flex;align-items:center;gap:4px;font-size:10px;font-weight:600;padding:2px 8px;border-radius:99px;font-family:monospace}
+.pill.ok{background:var(--green2);color:var(--green);border:1px solid rgba(14,159,98,.3)}
+.pill.info{background:#dce8ff;color:#1a4fa0;border:1px solid rgba(26,79,160,.2)}
+.pill.err{background:var(--red2);color:var(--red);border:1px solid rgba(214,48,49,.3)}
+.pill.ld{background:rgba(245,166,35,.12);color:var(--orange);border:1px solid rgba(245,166,35,.3)}
+
+/* ── BUTTONS ── */
+.btn{padding:8px 16px;border-radius:var(--r);font-family:var(--fh);font-size:12px;font-weight:600;cursor:pointer;transition:.15s;border:none;display:inline-flex;align-items:center;justify-content:center;gap:6px;letter-spacing:.01em}
+.btn-p{background:var(--navy);color:#fff}.btn-p:hover{background:var(--navy2)}.btn-p:disabled{opacity:.35;cursor:default}
+.btn-g{background:var(--bg3);color:var(--text2);border:1px solid var(--border)}.btn-g:hover{background:var(--border);color:var(--text)}
+.btn-gold{background:var(--gold);color:var(--navy);font-weight:700}.btn-gold:hover{background:#e09516}
+.btn-gr{background:var(--green2);color:var(--green);border:1px solid rgba(14,159,98,.3)}.btn-gr:hover{background:rgba(14,159,98,.2)}
+.btn-bl{background:#dce8ff;color:#1a4fa0;border:1px solid rgba(26,79,160,.2)}.btn-bl:hover{background:#c8d9f5}
+.btn-w{width:100%}
+.btn-login{background:var(--gold);color:var(--navy);width:100%;margin-bottom:6px;padding:9px;font-size:12.5px}
+.btn-login:hover{background:#e09516}
+
+/* ── RESULT ── */
+.rbox{background:linear-gradient(135deg,#0d2b55 0%,#1a3d6e 100%);border-radius:var(--r2);padding:16px;margin-bottom:12px;text-align:center;color:#fff}
+.rbox .icon{font-size:28px;margin-bottom:6px}
+.rbox h3{font-family:var(--fh);font-size:14px;font-weight:700;color:var(--gold);margin-bottom:4px}
+.rbox p{font-size:11px;color:rgba(255,255,255,.65)}
+.dlrow{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px}
+
+/* ── FOOTER ── */
+.ftr{background:var(--bg2);padding:10px 14px;border-top:2px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-shrink:0;gap:8px}
+.fts{font-size:10px;color:var(--text3);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:monospace}
+
+/* ── TOAST ── */
+.toast{position:fixed;bottom:54px;left:50%;transform:translateX(-50%) translateY(6px);background:var(--navy);color:rgba(255,255,255,.85);padding:6px 14px;border-radius:99px;font-size:10px;font-family:monospace;opacity:0;transition:.2s;pointer-events:none;white-space:nowrap;z-index:999;border:1px solid rgba(245,166,35,.3)}
 .toast.on{opacity:1;transform:translateX(-50%) translateY(0)}
-.body::-webkit-scrollbar{width:4px}.body::-webkit-scrollbar-thumb{background:var(--b2);border-radius:2px}
-.mt8{margin-top:8px}.mt12{margin-top:12px}.fb{display:flex;align-items:center;justify-content:space-between}
+
+/* ── SCROLLBAR ── */
+.body::-webkit-scrollbar{width:4px}.body::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
+.mt8{margin-top:8px}.mt12{margin-top:12px}
+.fb{display:flex;align-items:center;justify-content:space-between}
 </style>
 </head>
 <body>
+
+<!-- HEADER -->
 <div class="hdr">
-  <div class="logo">INT</div>
-  <div class="htx"><div class="ht">Rellena Formularios</div><div class="hs" id="hSub">Conectando SharePoint...</div></div>
-  <div class="ver">v1.5</div>
+  <!-- Logo Intelec: anillo amarillo + texto -->
+  <svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" style="flex-shrink:0">
+    <circle cx="16" cy="16" r="16" fill="#F9D100"/>
+    <circle cx="16" cy="16" r="8.5" fill="#2B3671"/>
+  </svg>
+  <span style="font-family:'Raleway',sans-serif;font-size:15px;font-weight:700;color:#fff;letter-spacing:.03em;flex-shrink:0">intelec</span>
+  <div class="hdr-divider"></div>
+  <div class="htx">
+    <div class="ht">Rellena Formularios</div>
+    <div class="hs" id="hSub">Conectando a SharePoint...</div>
+  </div>
+  <div class="ver">v1.8</div>
 </div>
+
+<!-- STEPS -->
 <div class="steps">
   <div class="step active" id="s1"><div class="sd">1</div><div class="sl">Documento</div></div>
   <div class="step" id="s2"><div class="sd">2</div><div class="sl">Analizar</div></div>
   <div class="step" id="s3"><div class="sd">3</div><div class="sl">Descargar</div></div>
 </div>
+
+<!-- BODY -->
 <div class="body">
+
+  <!-- PANE 1 -->
   <div class="pane active" id="p1">
+
     <div class="abox">
       <h3>Conexión Microsoft 365</h3>
-      <p>Los datos se leen en tiempo real desde <b>DATOS EMPRESAS.xlsx</b> en SharePoint. Ningún dato está en el código.</p>
+      <p>Datos leídos en tiempo real desde <b>DATOS EMPRESAS.xlsx</b> en SharePoint.</p>
     </div>
     <div class="asts"><div class="dot ld" id="aDot"></div><span id="aMsg">Inicializando...</span></div>
-    <button class="btn btn-bl btn-w" id="btnLogin" onclick="doLogin()" style="display:none;margin-bottom:8px;">Iniciar sesión con Microsoft 365</button>
-    <button class="btn btn-g btn-w" id="btnOut" onclick="doLogout()" style="display:none;font-size:11px;margin-bottom:8px;">Cerrar sesión</button>
-    <div class="stitle mt12">Clave API Anthropic</div>
-    <div class="akrow"><input type="password" id="ak" placeholder="sk-ant-api03-..." oninput="saveAk(this.value)"><button class="btn btn-g" onclick="togAk()" style="padding:7px 10px;font-size:11px;">ver</button></div>
-    <div class="stitle mt12" id="attT">Adjuntos del email</div>
-    <div id="attL"><div style="font-size:11px;color:var(--t3);">Cargando...</div></div>
-    <div class="stitle mt12">O sube un archivo</div>
-    <div class="upzone" id="uz" onclick="document.getElementById('fi').click()" ondragover="event.preventDefault();this.classList.add('drag')" ondragleave="this.classList.remove('drag')" ondrop="hDrop(event)">
-      <strong>Arrastra o haz clic</strong><p>DOCX · XLSX · PDF</p>
+    <button class="btn btn-login" id="btnLogin" onclick="doLogin()" style="display:none;">Iniciar sesión con Microsoft 365</button>
+    <button class="btn btn-g btn-w" id="btnOut" onclick="doLogout()" style="display:none;font-size:11px;margin-bottom:10px;">Cerrar sesión</button>
+
+    <div class="stitle-block mt12"><span>Clave API Anthropic</span></div>
+    <div class="akrow">
+      <input type="password" id="ak" placeholder="sk-ant-api03-..." oninput="saveAk(this.value)">
+      <button class="btn btn-g" onclick="togAk()" style="padding:7px 10px;font-size:11px;">ver</button>
+    </div>
+
+    <div class="stitle-block mt12"><span id="attT">Adjuntos del email</span></div>
+    <div id="attL"><div style="font-size:11px;color:var(--text3);">Cargando...</div></div>
+
+    <div class="stitle-block mt12"><span>O sube un archivo</span></div>
+    <div class="upzone" id="uz" onclick="document.getElementById('fi').click()"
+         ondragover="event.preventDefault();this.classList.add('drag')"
+         ondragleave="this.classList.remove('drag')"
+         ondrop="hDrop(event)">
+      <span class="upzone-icon">📎</span>
+      <strong>Arrastra o haz clic para subir</strong>
+      <p>DOCX · XLSX · PDF</p>
     </div>
     <input type="file" id="fi" accept=".docx,.xlsx,.pdf,.doc" onchange="hUp(this)">
+
     <div id="sfInfo" style="display:none;margin-top:10px;">
-      <div class="card" style="display:flex;align-items:center;gap:10px;">
+      <div class="card card-accent" style="display:flex;align-items:center;gap:10px;">
         <div class="aico" id="sfIco">DOC</div>
-        <div style="flex:1;min-width:0;"><div style="font-size:12px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" id="sfName"></div><div style="font-size:10px;color:var(--t3);font-family:var(--m);" id="sfSz"></div></div>
-        <span class="pill ok">✓</span>
+        <div style="flex:1;min-width:0;">
+          <div style="font-size:12px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" id="sfName"></div>
+          <div style="font-size:10px;color:var(--text3);font-family:monospace;" id="sfSz"></div>
+        </div>
+        <span class="pill ok">✓ Listo</span>
       </div>
     </div>
   </div>
+
+  <!-- PANE 2 -->
   <div class="pane" id="p2">
-    <div id="anlz" class="ctr"><div class="spin"></div><p>Analizando con IA...</p><small id="anlzStep">Extrayendo contenido</small></div>
+    <div id="anlz" class="ctr">
+      <div class="spin"></div>
+      <p>Analizando con IA...</p>
+      <small id="anlzStep">Extrayendo contenido del documento</small>
+    </div>
     <div id="fmap" style="display:none;">
       <div class="fb" style="margin-bottom:10px;">
-        <div class="stitle" style="margin:0;border:none;padding:0;">Campos detectados</div>
-        <span class="pill info" id="fcnt">0 campos</span>
+        <div class="stitle-block" style="flex:1"><span>Campos detectados</span></div>
+        <span class="pill info" id="fcnt" style="margin-left:8px;">0 campos</span>
       </div>
       <div id="flist"></div>
     </div>
   </div>
+
+  <!-- PANE 3 -->
   <div class="pane" id="p3">
-    <div id="fill" class="ctr" style="display:none;"><div class="spin"></div><p>Rellenando...</p><div class="pgbar" style="margin-top:14px;"><div class="pgfill" id="pgf"></div></div><div class="pglbl" id="pgl">Procesando...</div></div>
+    <div id="fill" class="ctr" style="display:none;">
+      <div class="spin"></div>
+      <p>Rellenando documento...</p>
+      <div class="pgbar" style="margin-top:14px;"><div class="pgfill" id="pgf"></div></div>
+      <div class="pglbl" id="pgl">Procesando...</div>
+    </div>
     <div id="dlSec" style="display:none;">
       <div class="rbox">
-        <div style="font-size:26px;margin-bottom:6px;">✓</div>
-        <div style="font-size:14px;font-weight:600;color:var(--gr);margin-bottom:4px;">Documento rellenado</div>
-        <div style="font-size:11px;color:var(--t2);" id="rSub"></div>
+        <div class="icon">✓</div>
+        <h3>Documento rellenado</h3>
+        <p id="rSub">Listo para descargar</p>
         <div class="dlrow">
-          <button class="btn btn-gr btn-w" onclick="dlPDF()">⬇ PDF</button>
-          <button class="btn btn-bl btn-w" onclick="dlOrig()">⬇ <span id="dlLbl">DOCX</span></button>
+          <button class="btn btn-gold btn-w" onclick="dlPDF()">⬇ Descargar PDF</button>
+          <button class="btn btn-g btn-w" onclick="dlOrig()">⬇ <span id="dlLbl">DOCX</span></button>
         </div>
       </div>
-      <div class="stitle">Vista previa</div>
-      <div id="prev" style="background:var(--bg2);border:1px solid var(--b);border-radius:var(--r);padding:12px;font-size:11.5px;line-height:1.8;max-height:260px;overflow-y:auto;white-space:pre-wrap;font-family:var(--m);color:var(--t2);"></div>
-      <button class="btn btn-g btn-w mt8" onclick="reset()">← Nuevo</button>
+      <div class="stitle-block"><span>Vista previa</span></div>
+      <div id="prev" style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);padding:12px;font-size:11.5px;line-height:1.8;max-height:260px;overflow-y:auto;white-space:pre-wrap;font-family:monospace;color:var(--text2);"></div>
+      <button class="btn btn-g btn-w mt8" onclick="reset()">← Nuevo documento</button>
     </div>
   </div>
+
 </div>
+
+<!-- FOOTER -->
 <div class="ftr">
   <div class="fts" id="fts">Iniciando...</div>
   <div style="display:flex;gap:6px;">
-    <button class="btn btn-g" id="btnBk" onclick="goBack()" style="padding:6px 11px;font-size:11.5px;display:none;">← Atrás</button>
-    <button class="btn btn-p" id="btnNx" onclick="goNext()" disabled style="padding:6px 14px;font-size:11.5px;">Siguiente →</button>
+    <button class="btn btn-g" id="btnBk" onclick="goBack()" style="padding:6px 12px;font-size:11.5px;display:none;">← Atrás</button>
+    <button class="btn btn-p" id="btnNx" onclick="goNext()" disabled style="padding:6px 16px;">Siguiente →</button>
   </div>
 </div>
+
 <div class="toast" id="toast"></div>
+
 <script>
 const CFG={
   driveId:'b!0_eiUrX67U-XofAwHJeTqs9SWxlTMfBFiLMucSxWuHdaAgQD43CcQJQGO2DrfgAN',
@@ -425,9 +547,9 @@ function buildHtml(fields,fname){
   return `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><title>${eH(fname)}</title>
 <style>body{font-family:'Helvetica Neue',Arial,sans-serif;font-size:11pt;color:#111;padding:30px 40px;max-width:800px;margin:0 auto}
 .hdr{display:flex;align-items:center;gap:16px;border-bottom:2px solid #000;padding-bottom:14px;margin-bottom:20px}
-.lb{background:#000;color:#fff;font-size:11px;font-weight:700;padding:8px 10px;border-radius:4px;letter-spacing:.05em}
+.lb{background:#2B3671;color:#fff;font-size:11px;font-weight:700;padding:8px 10px;border-radius:4px;letter-spacing:.05em}
 h1{font-size:14pt;font-weight:700;margin:0 0 2px}.sub{font-size:9pt;color:#666}
-table{width:100%;border-collapse:collapse}th{background:#000;color:#fff;padding:7px 12px;font-size:9pt;text-align:left;font-weight:600}
+table{width:100%;border-collapse:collapse}th{background:#2B3671;color:#fff;padding:7px 12px;font-size:9pt;text-align:left;font-weight:600}
 td{padding:7px 12px;border-bottom:1px solid #e5e5e5}td.l{font-size:9pt;color:#555;width:38%;font-weight:500}td.v{font-size:10pt;font-weight:600}
 .ft{margin-top:28px;padding-top:10px;border-top:1px solid #ddd;font-size:8pt;color:#999;display:flex;justify-content:space-between}
 @media print{@page{margin:1.5cm}}</style>
