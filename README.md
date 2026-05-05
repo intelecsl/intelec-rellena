@@ -25,7 +25,7 @@ intelec-rellena/
 2. Subir todos los ficheros
 3. Ir a **Settings → Pages → Branch: main → / (root)** → Save
 4. URL resultante: `https://intelecsl.github.io/intelec-rellena/`
-5. **Editar `manifest.xml`**: reemplazar `TU-USUARIO` por tu usuario de GitHub en todos los campos
+5. **Editar `manifest.xml`**: reemplazar `intelecsl` por tu usuario de GitHub en todos los campos
 
 ---
 

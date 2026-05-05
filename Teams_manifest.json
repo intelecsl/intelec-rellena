@@ -1,0 +1,126 @@
+{
+  "$schema": "https://developer.microsoft.com/en-us/json-schemas/teams/v1.17/MicrosoftTeams.schema.json",
+  "manifestVersion": "1.17",
+  "version": "1.1.0",
+  "id": "4c2a7f3b-8e1d-4b9a-c5f6-2d8e0a3b6c9d",
+  "packageName": "com.intelecsl.rellena",
+  "developer": {
+    "name": "Intelec S.L.",
+    "websiteUrl": "https://intelecsl.github.io/intelec-rellena/",
+    "privacyUrl": "https://intelecsl.github.io/intelec-rellena/",
+    "termsOfUseUrl": "https://intelecsl.github.io/intelec-rellena/"
+  },
+  "icons": {
+    "color": "icon-color.png",
+    "outline": "icon-outline.png"
+  },
+  "name": {
+    "short": "Rellena Formularios",
+    "full": "Intelec Rellena Formularios"
+  },
+  "description": {
+    "short": "Rellena formularios con datos de Intelec",
+    "full": "Complemento Intelec: detecta adjuntos del email (DOCX, XLSX, PDF), los analiza con IA y los rellena automáticamente con los datos de INTELEC S.L. leídos desde SharePoint. Genera PDF listo para enviar."
+  },
+  "accentColor": "#e8f03a",
+  "extensions": [
+    {
+      "requirements": {
+        "scopes": [
+          "mail"
+        ],
+        "capabilities": [
+          {
+            "name": "Mailbox",
+            "minVersion": "1.3"
+          }
+        ]
+      },
+      "runtimes": [
+        {
+          "requirements": {
+            "capabilities": [
+              {
+                "name": "Mailbox",
+                "minVersion": "1.3"
+              }
+            ]
+          },
+          "id": "IntelecRellenaRuntime",
+          "type": "general",
+          "code": {
+            "page": "https://intelecsl.github.io/intelec-rellena/index.html"
+          },
+          "lifetime": "short",
+          "actions": [
+            {
+              "id": "ShowTaskpane",
+              "type": "openPage",
+              "pinnable": false,
+              "view": "dashboard"
+            }
+          ]
+        }
+      ],
+      "ribbons": [
+        {
+          "contexts": [
+            "mailRead",
+            "mailCompose"
+          ],
+          "tabs": [
+            {
+              "builtInTabId": "TabDefault",
+              "groups": [
+                {
+                  "id": "IntelecGroup",
+                  "label": "Intelec",
+                  "icons": [
+                    {
+                      "size": 16,
+                      "url": "https://intelecsl.github.io/intelec-rellena/icon-16.png"
+                    },
+                    {
+                      "size": 32,
+                      "url": "https://intelecsl.github.io/intelec-rellena/icon-32.png"
+                    },
+                    {
+                      "size": 80,
+                      "url": "https://intelecsl.github.io/intelec-rellena/icon-80.png"
+                    }
+                  ],
+                  "controls": [
+                    {
+                      "id": "IntelecRellenaButton",
+                      "type": "button",
+                      "label": "Rellena Formularios",
+                      "icons": [
+                        {
+                          "size": 16,
+                          "url": "https://intelecsl.github.io/intelec-rellena/icon-16.png"
+                        },
+                        {
+                          "size": 32,
+                          "url": "https://intelecsl.github.io/intelec-rellena/icon-32.png"
+                        },
+                        {
+                          "size": 80,
+                          "url": "https://intelecsl.github.io/intelec-rellena/icon-80.png"
+                        }
+                      ],
+                      "supertip": {
+                        "title": "Rellena Formularios",
+                        "description": "Abre el panel para rellenar formularios adjuntos con datos de INTELEC S.L. desde SharePoint"
+                      },
+                      "actionId": "ShowTaskpane"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

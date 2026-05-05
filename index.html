@@ -2,988 +2,462 @@
 <html lang="es">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
-<title>Intelec — Rellena Formularios</title>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+<title>Intelec Rellena Formularios</title>
 <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
+<script src="https://alcdn.msauth.net/browser/2.38.3/js/msal-browser.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
 <style>
-@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap');
-:root {
-  --bg:#0f0f0f; --bg2:#181818; --bg3:#222; --bg4:#2a2a2a;
-  --border:rgba(255,255,255,0.07); --border2:rgba(255,255,255,0.13);
-  --accent:#e8f03a; --accent2:rgba(232,240,58,0.1); --accent3:rgba(232,240,58,0.2);
-  --blue:#3b9eff; --blue2:rgba(59,158,255,0.1);
-  --green:#4ade80; --green2:rgba(74,222,128,0.1);
-  --red:#f87171; --red2:rgba(248,113,113,0.1);
-  --orange:#fb923c; --orange2:rgba(251,146,60,0.1);
-  --text:#f0f0f0; --text2:rgba(240,240,240,0.5); --text3:rgba(240,240,240,0.27);
-  --font:'IBM Plex Sans',sans-serif; --mono:'IBM Plex Mono',monospace;
-  --r:6px; --r2:10px;
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap');
+:root{
+  --bg:#0f0f0f;--bg2:#181818;--bg3:#222;--bg4:#2a2a2a;
+  --b:rgba(255,255,255,.07);--b2:rgba(255,255,255,.13);
+  --a:#e8f03a;--a2:rgba(232,240,58,.1);
+  --bl:#3b9eff;--bl2:rgba(59,158,255,.1);
+  --gr:#4ade80;--gr2:rgba(74,222,128,.1);
+  --rd:#f87171;--rd2:rgba(248,113,113,.1);
+  --or:#fb923c;
+  --t:#f0f0f0;--t2:rgba(240,240,240,.5);--t3:rgba(240,240,240,.28);
+  --f:'IBM Plex Sans',sans-serif;--m:'IBM Plex Mono',monospace;--r:6px;--r2:10px;
 }
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{height:100%;overflow:hidden}
-body{font-family:var(--font);background:var(--bg);color:var(--text);font-size:13px;line-height:1.5;display:flex;flex-direction:column}
-
-/* ── HEADER ── */
-.hdr{padding:11px 14px 10px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:9px;flex-shrink:0}
-.logo{width:30px;height:30px;background:var(--accent);border-radius:4px;display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:10px;font-weight:500;color:#0f0f0f;flex-shrink:0;letter-spacing:-.02em}
-.hdr-text{flex:1;min-width:0}
-.hdr-title{font-size:12.5px;font-weight:600}
-.hdr-sub{font-size:10px;color:var(--text3);font-family:var(--mono)}
-.ver{font-family:var(--mono);font-size:9.5px;color:var(--accent);border:1px solid rgba(232,240,58,.3);padding:2px 5px;border-radius:3px;flex-shrink:0}
-
-/* ── STEPS ── */
-.steps{display:flex;padding:10px 14px 9px;gap:0;border-bottom:1px solid var(--border);flex-shrink:0}
+body{font-family:var(--f);background:var(--bg);color:var(--t);font-size:13px;line-height:1.5;display:flex;flex-direction:column}
+.hdr{padding:11px 14px 10px;border-bottom:1px solid var(--b);display:flex;align-items:center;gap:9px;flex-shrink:0}
+.logo{width:30px;height:30px;background:var(--a);border-radius:4px;display:flex;align-items:center;justify-content:center;font-family:var(--m);font-size:10px;font-weight:500;color:#0f0f0f;flex-shrink:0}
+.htx{flex:1;min-width:0}.ht{font-size:12.5px;font-weight:600}.hs{font-size:10px;color:var(--t3);font-family:var(--m)}
+.ver{font-family:var(--m);font-size:9.5px;color:var(--a);border:1px solid rgba(232,240,58,.3);padding:2px 5px;border-radius:3px;flex-shrink:0}
+.steps{display:flex;padding:10px 14px 9px;border-bottom:1px solid var(--b);flex-shrink:0}
 .step{flex:1;display:flex;align-items:center;gap:6px;position:relative}
-.step:not(:last-child)::after{content:'';position:absolute;right:0;top:50%;transform:translateY(-50%);width:12px;height:1px;background:var(--border2)}
-.step-dot{width:20px;height:20px;border-radius:50%;border:1.5px solid var(--border2);display:flex;align-items:center;justify-content:center;font-size:9px;font-family:var(--mono);color:var(--text3);flex-shrink:0;transition:.2s}
-.step-label{font-size:10px;color:var(--text3);transition:.2s;white-space:nowrap}
-.step.active .step-dot{border-color:var(--accent);color:var(--accent);background:var(--accent2)}
-.step.active .step-label{color:var(--text)}
-.step.done .step-dot{border-color:var(--green);background:var(--green2);color:var(--green)}
-.step.done .step-label{color:var(--text2)}
-
-/* ── BODY ── */
+.step:not(:last-child)::after{content:'';position:absolute;right:0;top:50%;transform:translateY(-50%);width:12px;height:1px;background:var(--b2)}
+.sd{width:20px;height:20px;border-radius:50%;border:1.5px solid var(--b2);display:flex;align-items:center;justify-content:center;font-size:9px;font-family:var(--m);color:var(--t3);flex-shrink:0;transition:.2s}
+.sl{font-size:10px;color:var(--t3);transition:.2s;white-space:nowrap}
+.step.active .sd{border-color:var(--a);color:var(--a);background:var(--a2)}.step.active .sl{color:var(--t)}
+.step.done .sd{border-color:var(--gr);background:var(--gr2);color:var(--gr)}.step.done .sl{color:var(--t2)}
 .body{flex:1;overflow-y:auto;overflow-x:hidden}
-.pane{display:none;padding:14px}
-.pane.active{display:block}
-
-/* ── TYPOGRAPHY ── */
-.section-title{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--text3);margin-bottom:8px;padding-bottom:5px;border-bottom:1px solid var(--border)}
-.label{font-size:10px;color:var(--text3);margin-bottom:2px}
-.value{font-size:12.5px;color:var(--text);font-weight:500}
-.mono{font-family:var(--mono);font-size:11.5px}
-
-/* ── CARDS ── */
-.card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--r2);padding:11px 12px;margin-bottom:8px}
-.card-sm{background:var(--bg3);border:1px solid var(--border);border-radius:var(--r);padding:8px 10px;margin-bottom:6px}
-
-/* ── ATTACHMENT LIST ── */
-.att-item{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:var(--r);border:1px solid var(--border);background:var(--bg3);margin-bottom:6px;cursor:pointer;transition:.15s}
-.att-item:hover{border-color:var(--border2);background:var(--bg4)}
-.att-item.selected{border-color:rgba(232,240,58,.4);background:var(--accent2)}
-.att-icon{width:32px;height:32px;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:10px;font-family:var(--mono);font-weight:500;flex-shrink:0}
-.att-icon.docx{background:rgba(59,158,255,.15);color:var(--blue)}
-.att-icon.xlsx{background:var(--green2);color:var(--green)}
-.att-icon.pdf{background:var(--red2);color:var(--red)}
-.att-icon.other{background:var(--bg4);color:var(--text3)}
-.att-name{font-size:12px;font-weight:500;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.att-size{font-size:10px;color:var(--text3);font-family:var(--mono);flex-shrink:0}
-
-/* ── UPLOAD ZONE ── */
-.upload-zone{border:1.5px dashed var(--border2);border-radius:var(--r2);padding:22px 14px;text-align:center;cursor:pointer;transition:.2s;margin-top:10px}
-.upload-zone:hover,.upload-zone.drag{border-color:rgba(232,240,58,.4);background:var(--accent2)}
-.upload-zone p{font-size:11px;color:var(--text3);margin-top:4px}
-.upload-zone strong{color:var(--accent);font-size:12px}
-#fileInput{display:none}
-
-/* ── FIELD MAPPING ── */
-.field-row{display:flex;align-items:flex-start;gap:8px;padding:7px 0;border-bottom:1px solid var(--border)}
-.field-row:last-child{border-bottom:none}
-.field-from{flex:1;min-width:0}
-.field-key{font-size:10px;color:var(--text3);margin-bottom:1px}
-.field-orig{font-size:11px;color:var(--text2);font-style:italic;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
-.field-arrow{font-size:14px;color:var(--accent);flex-shrink:0;padding-top:12px}
-.field-to{flex:1;min-width:0}
-.field-val-input{width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:4px;padding:5px 7px;color:var(--text);font-family:var(--font);font-size:12px;outline:none;transition:.15s}
-.field-val-input:focus{border-color:rgba(232,240,58,.4)}
-.field-skip{width:22px;height:22px;border:1px solid var(--border2);background:transparent;border-radius:4px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:14px;transition:.15s;font-size:12px;color:var(--text3)}
-.field-skip:hover{background:var(--red2);border-color:var(--red);color:var(--red)}
-.field-skip.skipped{background:var(--red2);border-color:var(--red);color:var(--red)}
-
-/* ── PROGRESS ── */
-.progress-wrap{margin:10px 0}
-.progress-bar{height:3px;background:var(--bg3);border-radius:99px;overflow:hidden}
-.progress-fill{height:100%;background:var(--accent);border-radius:99px;transition:width .4s;width:0}
-.progress-label{font-size:10px;color:var(--text3);margin-top:4px;font-family:var(--mono)}
-
-/* ── SPINNER ── */
-.spinner{width:32px;height:32px;border:2.5px solid var(--border2);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite;margin:0 auto}
-@keyframes spin{to{transform:rotate(360deg)}}
-.analyzing{text-align:center;padding:30px 14px}
-.analyzing p{font-size:12px;color:var(--text2);margin-top:10px}
-.analyzing small{font-size:10px;color:var(--text3);font-family:var(--mono)}
-
-/* ── STATUS PILLS ── */
-.pill{display:inline-flex;align-items:center;gap:4px;font-size:10px;font-family:var(--mono);padding:2px 7px;border-radius:99px}
-.pill.ok{background:var(--green2);color:var(--green);border:1px solid rgba(74,222,128,.3)}
-.pill.warn{background:var(--orange2);color:var(--orange);border:1px solid rgba(251,146,60,.3)}
-.pill.err{background:var(--red2);color:var(--red);border:1px solid rgba(248,113,113,.3)}
-.pill.info{background:var(--blue2);color:var(--blue);border:1px solid rgba(59,158,255,.3)}
-
-/* ── BUTTONS ── */
-.btn{padding:8px 14px;border-radius:var(--r);font-family:var(--font);font-size:12.5px;cursor:pointer;transition:.15s;border:none;display:inline-flex;align-items:center;gap:6px}
-.btn-primary{background:var(--accent);color:#0f0f0f;font-weight:600}
-.btn-primary:hover{opacity:.88}
-.btn-primary:disabled{opacity:.35;cursor:default}
-.btn-ghost{background:transparent;color:var(--text2);border:1px solid var(--border2)}
-.btn-ghost:hover{background:var(--bg3);color:var(--text)}
-.btn-blue{background:var(--blue2);color:var(--blue);border:1px solid rgba(59,158,255,.25)}
-.btn-blue:hover{background:rgba(59,158,255,.2)}
-.btn-green{background:var(--green2);color:var(--green);border:1px solid rgba(74,222,128,.25)}
-.btn-green:hover{background:rgba(74,222,128,.2)}
-.btn-full{width:100%;justify-content:center}
-.btn-row{display:flex;gap:7px;margin-top:10px}
-
-/* ── FOOTER ── */
-.ftr{padding:10px 14px;border-top:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-shrink:0;gap:8px}
-.ftr-status{font-size:10px;color:var(--text3);font-family:var(--mono);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-
-/* ── RESULT ── */
-.result-box{background:var(--bg2);border:1px solid rgba(74,222,128,.25);border-radius:var(--r2);padding:14px;margin-bottom:10px;text-align:center}
-.result-icon{font-size:28px;margin-bottom:8px}
-.result-title{font-size:14px;font-weight:600;margin-bottom:4px}
-.result-sub{font-size:11px;color:var(--text2)}
-.dl-row{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:12px}
-
-/* ── API KEY ── */
-.apikey-row{display:flex;gap:6px;margin-bottom:10px}
-.apikey-row input{flex:1;background:var(--bg3);border:1px solid var(--border2);border-radius:4px;padding:7px 9px;color:var(--text);font-family:var(--mono);font-size:11px;outline:none}
-.apikey-row input:focus{border-color:rgba(232,240,58,.4)}
-.apikey-row input::placeholder{color:var(--text3)}
-
-/* ── TOAST ── */
-.toast{position:fixed;bottom:54px;left:50%;transform:translateX(-50%) translateY(6px);background:var(--bg3);border:1px solid var(--border2);color:var(--text2);padding:5px 12px;border-radius:99px;font-size:10px;font-family:var(--mono);opacity:0;transition:.2s;pointer-events:none;white-space:nowrap;z-index:999}
-.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
-
-/* ── SCROLLBAR ── */
-.body::-webkit-scrollbar{width:4px}
-.body::-webkit-scrollbar-track{background:transparent}
-.body::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
-
-/* ── UTILS ── */
-.mt8{margin-top:8px} .mt12{margin-top:12px} .mt16{margin-top:16px}
-.flex-between{display:flex;align-items:center;justify-content:space-between}
-.gap6{gap:6px}
+.pane{display:none;padding:14px}.pane.active{display:block}
+.stitle{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--t3);margin-bottom:8px;padding-bottom:5px;border-bottom:1px solid var(--b)}
+.card{background:var(--bg2);border:1px solid var(--b);border-radius:var(--r2);padding:11px 12px;margin-bottom:8px}
+.att-item{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:var(--r);border:1px solid var(--b);background:var(--bg3);margin-bottom:6px;cursor:pointer;transition:.15s}
+.att-item:hover{border-color:var(--b2);background:var(--bg4)}.att-item.selected{border-color:rgba(232,240,58,.4);background:var(--a2)}
+.aico{width:32px;height:32px;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:10px;font-family:var(--m);font-weight:500;flex-shrink:0}
+.aico.docx{background:rgba(59,158,255,.15);color:var(--bl)}.aico.xlsx{background:var(--gr2);color:var(--gr)}.aico.pdf{background:var(--rd2);color:var(--rd)}.aico.other{background:var(--bg4);color:var(--t3)}
+.aname{font-size:12px;font-weight:500;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.asize{font-size:10px;color:var(--t3);font-family:var(--m);flex-shrink:0}
+.upzone{border:1.5px dashed var(--b2);border-radius:var(--r2);padding:22px 14px;text-align:center;cursor:pointer;transition:.2s;margin-top:10px}
+.upzone:hover,.upzone.drag{border-color:rgba(232,240,58,.4);background:var(--a2)}
+.upzone p{font-size:11px;color:var(--t3);margin-top:4px}.upzone strong{color:var(--a);font-size:12px}
+#fi{display:none}
+.frow{display:flex;align-items:flex-start;gap:8px;padding:7px 0;border-bottom:1px solid var(--b)}
+.frow:last-child{border-bottom:none}
+.ffrom{flex:1;min-width:0}.fkey{font-size:10px;color:var(--t3);margin-bottom:1px}
+.forig{font-size:11px;color:var(--t2);font-style:italic;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.farrow{font-size:14px;color:var(--a);flex-shrink:0;padding-top:12px}
+.fto{flex:1;min-width:0}
+.fvi{width:100%;background:var(--bg3);border:1px solid var(--b2);border-radius:4px;padding:5px 7px;color:var(--t);font-family:var(--f);font-size:12px;outline:none;transition:.15s}
+.fvi:focus{border-color:rgba(232,240,58,.4)}
+.fsk{width:22px;height:22px;border:1px solid var(--b2);background:transparent;border-radius:4px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:14px;transition:.15s;font-size:12px;color:var(--t3)}
+.fsk:hover,.fsk.sk{background:var(--rd2);border-color:var(--rd);color:var(--rd)}
+.pgbar{height:3px;background:var(--bg3);border-radius:99px;overflow:hidden;margin:8px 0 4px}
+.pgfill{height:100%;background:var(--a);border-radius:99px;transition:width .4s;width:0}
+.pglbl{font-size:10px;color:var(--t3);font-family:var(--m)}
+.spin{width:32px;height:32px;border:2.5px solid var(--b2);border-top-color:var(--a);border-radius:50%;animation:sp .8s linear infinite;margin:0 auto}
+@keyframes sp{to{transform:rotate(360deg)}}
+.ctr{text-align:center;padding:30px 14px}.ctr p{font-size:12px;color:var(--t2);margin-top:10px}.ctr small{font-size:10px;color:var(--t3);font-family:var(--m)}
+.pill{display:inline-flex;align-items:center;gap:4px;font-size:10px;font-family:var(--m);padding:2px 7px;border-radius:99px}
+.pill.ok{background:var(--gr2);color:var(--gr);border:1px solid rgba(74,222,128,.3)}
+.pill.info{background:var(--bl2);color:var(--bl);border:1px solid rgba(59,158,255,.3)}
+.pill.err{background:var(--rd2);color:var(--rd);border:1px solid rgba(248,113,113,.3)}
+.pill.ld{background:rgba(251,146,60,.1);color:var(--or);border:1px solid rgba(251,146,60,.3)}
+.btn{padding:8px 14px;border-radius:var(--r);font-family:var(--f);font-size:12.5px;cursor:pointer;transition:.15s;border:none;display:inline-flex;align-items:center;justify-content:center;gap:6px}
+.btn-p{background:var(--a);color:#0f0f0f;font-weight:600}.btn-p:hover{opacity:.88}.btn-p:disabled{opacity:.35;cursor:default}
+.btn-g{background:transparent;color:var(--t2);border:1px solid var(--b2)}.btn-g:hover{background:var(--bg3);color:var(--t)}
+.btn-bl{background:var(--bl2);color:var(--bl);border:1px solid rgba(59,158,255,.25)}.btn-bl:hover{background:rgba(59,158,255,.2)}
+.btn-gr{background:var(--gr2);color:var(--gr);border:1px solid rgba(74,222,128,.25)}.btn-gr:hover{background:rgba(74,222,128,.2)}
+.btn-w{width:100%}
+.rbox{background:var(--bg2);border:1px solid rgba(74,222,128,.25);border-radius:var(--r2);padding:14px;margin-bottom:10px;text-align:center}
+.dlrow{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:12px}
+.abox{background:var(--bg2);border:1px solid rgba(59,158,255,.25);border-radius:var(--r2);padding:14px;margin-bottom:10px}
+.abox h3{font-size:13px;font-weight:600;margin-bottom:5px;color:var(--bl)}
+.abox p{font-size:11px;color:var(--t2);line-height:1.6}
+.asts{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:var(--r);background:var(--bg3);margin-bottom:8px;font-size:11px}
+.dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+.dot.ok{background:var(--gr)}.dot.err{background:var(--rd)}.dot.ld{background:var(--or);animation:pl 1s ease-in-out infinite}
+@keyframes pl{0%,100%{opacity:1}50%{opacity:.3}}
+.akrow{display:flex;gap:6px;margin-bottom:8px}
+.akrow input{flex:1;background:var(--bg3);border:1px solid var(--b2);border-radius:4px;padding:7px 9px;color:var(--t);font-family:var(--m);font-size:11px;outline:none}
+.akrow input:focus{border-color:rgba(232,240,58,.4)}.akrow input::placeholder{color:var(--t3)}
+.ftr{padding:10px 14px;border-top:1px solid var(--b);display:flex;align-items:center;justify-content:space-between;flex-shrink:0;gap:8px}
+.fts{font-size:10px;color:var(--t3);font-family:var(--m);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.toast{position:fixed;bottom:54px;left:50%;transform:translateX(-50%) translateY(6px);background:var(--bg3);border:1px solid var(--b2);color:var(--t2);padding:5px 12px;border-radius:99px;font-size:10px;font-family:var(--m);opacity:0;transition:.2s;pointer-events:none;white-space:nowrap;z-index:999}
+.toast.on{opacity:1;transform:translateX(-50%) translateY(0)}
+.body::-webkit-scrollbar{width:4px}.body::-webkit-scrollbar-thumb{background:var(--b2);border-radius:2px}
+.mt8{margin-top:8px}.mt12{margin-top:12px}.fb{display:flex;align-items:center;justify-content:space-between}
 </style>
 </head>
 <body>
-
-<!-- HEADER -->
 <div class="hdr">
   <div class="logo">INT</div>
-  <div class="hdr-text">
-    <div class="hdr-title">Rellena Formularios</div>
-    <div class="hdr-sub">INTELEC, S.L. · B28805398</div>
-  </div>
-  <div class="ver">v1.0</div>
+  <div class="htx"><div class="ht">Rellena Formularios</div><div class="hs" id="hSub">Conectando SharePoint...</div></div>
+  <div class="ver">v1.1</div>
 </div>
-
-<!-- STEPS -->
 <div class="steps">
-  <div class="step active" id="step-1">
-    <div class="step-dot">1</div>
-    <div class="step-label">Documento</div>
-  </div>
-  <div class="step" id="step-2">
-    <div class="step-dot">2</div>
-    <div class="step-label">Analizar</div>
-  </div>
-  <div class="step" id="step-3">
-    <div class="step-dot">3</div>
-    <div class="step-label">Descargar</div>
-  </div>
+  <div class="step active" id="s1"><div class="sd">1</div><div class="sl">Documento</div></div>
+  <div class="step" id="s2"><div class="sd">2</div><div class="sl">Analizar</div></div>
+  <div class="step" id="s3"><div class="sd">3</div><div class="sl">Descargar</div></div>
 </div>
-
-<!-- BODY -->
 <div class="body">
-
-  <!-- PANE 1: Documento -->
-  <div class="pane active" id="pane-1">
-
-    <!-- API Key -->
-    <div class="section-title">Clave API Anthropic</div>
-    <div class="apikey-row">
-      <input type="password" id="apiKey" placeholder="sk-ant-api03-..." oninput="saveApiKey(this.value)">
-      <button class="btn btn-ghost" onclick="toggleApiKey()" id="apiKeyToggle" style="padding:7px 10px;font-size:11px;">ver</button>
+  <div class="pane active" id="p1">
+    <div class="abox">
+      <h3>Conexión Microsoft 365</h3>
+      <p>Los datos se leen en tiempo real desde <b>DATOS EMPRESAS.xlsx</b> en SharePoint. Ningún dato está en el código.</p>
     </div>
-
-    <!-- Email Attachments -->
-    <div class="section-title mt12" id="att-section-title">Adjuntos del email</div>
-    <div id="attList">
-      <div style="font-size:11px;color:var(--text3);padding:8px 0;">Cargando adjuntos...</div>
+    <div class="asts"><div class="dot ld" id="aDot"></div><span id="aMsg">Inicializando...</span></div>
+    <button class="btn btn-bl btn-w" id="btnLogin" onclick="doLogin()" style="display:none;margin-bottom:8px;">Iniciar sesión con Microsoft 365</button>
+    <button class="btn btn-g btn-w" id="btnOut" onclick="doLogout()" style="display:none;font-size:11px;margin-bottom:8px;">Cerrar sesión</button>
+    <div class="stitle mt12">Clave API Anthropic</div>
+    <div class="akrow"><input type="password" id="ak" placeholder="sk-ant-api03-..." oninput="saveAk(this.value)"><button class="btn btn-g" onclick="togAk()" style="padding:7px 10px;font-size:11px;">ver</button></div>
+    <div class="stitle mt12" id="attT">Adjuntos del email</div>
+    <div id="attL"><div style="font-size:11px;color:var(--t3);">Cargando...</div></div>
+    <div class="stitle mt12">O sube un archivo</div>
+    <div class="upzone" id="uz" onclick="document.getElementById('fi').click()" ondragover="event.preventDefault();this.classList.add('drag')" ondragleave="this.classList.remove('drag')" ondrop="hDrop(event)">
+      <strong>Arrastra o haz clic</strong><p>DOCX · XLSX · PDF</p>
     </div>
-
-    <!-- Manual Upload -->
-    <div class="section-title mt12">O sube un archivo</div>
-    <div class="upload-zone" id="uploadZone" onclick="document.getElementById('fileInput').click()"
-         ondragover="event.preventDefault();this.classList.add('drag')"
-         ondragleave="this.classList.remove('drag')"
-         ondrop="handleDrop(event)">
-      <strong>Arrastra o haz clic</strong>
-      <p>DOCX · XLSX · PDF</p>
-    </div>
-    <input type="file" id="fileInput" accept=".docx,.xlsx,.pdf,.doc" onchange="handleFileUpload(this)">
-
-    <!-- Selected File -->
-    <div id="selectedFileInfo" style="display:none;margin-top:10px;">
+    <input type="file" id="fi" accept=".docx,.xlsx,.pdf,.doc" onchange="hUp(this)">
+    <div id="sfInfo" style="display:none;margin-top:10px;">
       <div class="card" style="display:flex;align-items:center;gap:10px;">
-        <div class="att-icon" id="selFileIcon">DOC</div>
-        <div style="flex:1;min-width:0;">
-          <div style="font-size:12px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" id="selFileName"></div>
-          <div style="font-size:10px;color:var(--text3);font-family:var(--mono);" id="selFileSize"></div>
-        </div>
-        <span class="pill ok">✓ listo</span>
+        <div class="aico" id="sfIco">DOC</div>
+        <div style="flex:1;min-width:0;"><div style="font-size:12px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" id="sfName"></div><div style="font-size:10px;color:var(--t3);font-family:var(--m);" id="sfSz"></div></div>
+        <span class="pill ok">✓</span>
       </div>
     </div>
-
   </div>
-
-  <!-- PANE 2: Analizar -->
-  <div class="pane" id="pane-2">
-
-    <div id="analyzing" class="analyzing">
-      <div class="spinner"></div>
-      <p>Analizando documento con IA...</p>
-      <small id="analyzing-step">Extrayendo contenido</small>
-    </div>
-
-    <div id="fieldMapping" style="display:none;">
-      <div class="flex-between" style="margin-bottom:10px;">
-        <div class="section-title" style="margin:0;border:none;padding:0;">Campos detectados</div>
-        <span class="pill info" id="fieldCount">0 campos</span>
+  <div class="pane" id="p2">
+    <div id="anlz" class="ctr"><div class="spin"></div><p>Analizando con IA...</p><small id="anlzStep">Extrayendo contenido</small></div>
+    <div id="fmap" style="display:none;">
+      <div class="fb" style="margin-bottom:10px;">
+        <div class="stitle" style="margin:0;border:none;padding:0;">Campos detectados</div>
+        <span class="pill info" id="fcnt">0 campos</span>
       </div>
-      <div id="fieldList"></div>
+      <div id="flist"></div>
     </div>
-
   </div>
-
-  <!-- PANE 3: Descargar -->
-  <div class="pane" id="pane-3">
-
-    <div id="filling" class="analyzing" style="display:none;">
-      <div class="spinner"></div>
-      <p>Rellenando documento...</p>
-      <div class="progress-wrap mt12">
-        <div class="progress-bar"><div class="progress-fill" id="fillProgress"></div></div>
-        <div class="progress-label" id="fillLabel">Procesando...</div>
-      </div>
-    </div>
-
-    <div id="downloadSection" style="display:none;">
-      <div class="result-box">
-        <div class="result-icon">✓</div>
-        <div class="result-title" style="color:var(--green);">Documento rellenado</div>
-        <div class="result-sub" id="resultSub">Listo para descargar</div>
-        <div class="dl-row">
-          <button class="btn btn-green btn-full" id="dlPdfBtn" onclick="downloadPDF()">
-            <span>⬇</span> PDF
-          </button>
-          <button class="btn btn-blue btn-full" id="dlOrigBtn" onclick="downloadOriginal()">
-            <span>⬇</span> <span id="dlOrigLabel">DOCX</span>
-          </button>
+  <div class="pane" id="p3">
+    <div id="fill" class="ctr" style="display:none;"><div class="spin"></div><p>Rellenando...</p><div class="pgbar" style="margin-top:14px;"><div class="pgfill" id="pgf"></div></div><div class="pglbl" id="pgl">Procesando...</div></div>
+    <div id="dlSec" style="display:none;">
+      <div class="rbox">
+        <div style="font-size:26px;margin-bottom:6px;">✓</div>
+        <div style="font-size:14px;font-weight:600;color:var(--gr);margin-bottom:4px;">Documento rellenado</div>
+        <div style="font-size:11px;color:var(--t2);" id="rSub"></div>
+        <div class="dlrow">
+          <button class="btn btn-gr btn-w" onclick="dlPDF()">⬇ PDF</button>
+          <button class="btn btn-bl btn-w" onclick="dlOrig()">⬇ <span id="dlLbl">DOCX</span></button>
         </div>
       </div>
-
-      <div class="section-title">Vista previa</div>
-      <div id="previewContent" style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);padding:12px;font-size:11.5px;line-height:1.8;max-height:280px;overflow-y:auto;white-space:pre-wrap;font-family:var(--mono);color:var(--text2);"></div>
-
-      <button class="btn btn-ghost btn-full mt12" onclick="resetAll()">← Nuevo documento</button>
+      <div class="stitle">Vista previa</div>
+      <div id="prev" style="background:var(--bg2);border:1px solid var(--b);border-radius:var(--r);padding:12px;font-size:11.5px;line-height:1.8;max-height:260px;overflow-y:auto;white-space:pre-wrap;font-family:var(--m);color:var(--t2);"></div>
+      <button class="btn btn-g btn-w mt8" onclick="reset()">← Nuevo</button>
     </div>
-
   </div>
-
 </div>
-
-<!-- FOOTER -->
 <div class="ftr">
-  <div class="ftr-status" id="ftrStatus">Esperando documento...</div>
+  <div class="fts" id="fts">Iniciando...</div>
   <div style="display:flex;gap:6px;">
-    <button class="btn btn-ghost" id="btnBack" onclick="goBack()" style="padding:6px 11px;font-size:11.5px;display:none;">← Atrás</button>
-    <button class="btn btn-primary" id="btnNext" onclick="goNext()" disabled style="padding:6px 14px;font-size:11.5px;">Siguiente →</button>
+    <button class="btn btn-g" id="btnBk" onclick="goBack()" style="padding:6px 11px;font-size:11.5px;display:none;">← Atrás</button>
+    <button class="btn btn-p" id="btnNx" onclick="goNext()" disabled style="padding:6px 14px;font-size:11.5px;">Siguiente →</button>
   </div>
 </div>
-
 <div class="toast" id="toast"></div>
-
-<!-- PRINT FRAME (hidden, for PDF) -->
-<iframe id="printFrame" style="display:none;"></iframe>
-
 <script>
-// ═══════════════════════════════════════════
-//  DATOS INTELEC
-// ═══════════════════════════════════════════
-const DATOS = {
-  razon_social: 'INTELEC, S.L.',
-  nombre_comercial: 'INTELEC, S.L.',
-  cif: 'B28805398',
-  tipo_sociedad: 'Sociedad Limitada (S.L.)',
-  actividad: 'Instalaciones Eléctricas, Protección contra Incendios e Instalaciones Térmicas en Edificios',
-  cnae: '4321 - Instalaciones Eléctricas',
-  iae: '504.1 - Instalaciones Eléctricas en General',
-  domicilio: 'C/ Amado Nervo 13-15, Local',
-  cp: '28007',
-  localidad: 'Madrid',
-  provincia: 'Madrid',
-  pais: 'España',
-  direccion_completa: 'C/ Amado Nervo 13-15, Local — 28007 Madrid',
-  telefono: '915013333',
-  telefono_fmt: '915 013 333',
-  fax: '915013333',
-  email: 'intelecsl@intelecsl.com',
-  email_contabilidad: 'contabilidad@intelecsl.com',
-  web: 'www.intelecsl.com',
-  iban: 'ES6400610370610017960114',
-  iban_fmt: 'ES64 0061 0370 6100 1796 0114',
-  banco: 'Banca March',
-  banco_codigo: '0061',
-  sucursal: '0370',
-  cuenta: '0017960114',
-  rep_nombre: 'Carlos García Lucía',
-  rep_dni: '50.791.248-A',
-  rep_cargo: 'Representante Legal',
-  poder_fecha: '11 de mayo de 1998',
-  poder_notario: 'Carlos Ruiz-Rivas Hernando',
-  poder_protocolo: '1344',
-  admin_nombre: 'Isabel',
-  admin_cargo: 'Administración',
-  admin_email: 'contabilidad@intelecsl.com',
-  admin_telefono: '915013333',
-  seg_social: '28032884289',
-  rea: '12-28-0019480',
-  ebte: 'EBTE-216',
-  reg_industrial: '68591',
-  reg_mercantil: 'Madrid, Tomo 6713, Sec. 3ª, Libro 5705, Hoja 57259',
-  fecha_constitucion: '29 de diciembre de 1982',
-  notario_const: 'Ignacio Solís Villa',
-  protocolo_const: '2888',
-  seguro_poliza: '053023029',
-  seguro_compania: 'Allianz',
-  seguro_importe: '2.000.000€ por siniestro, 4.000.000€ anuales',
-  servicio_prevencion: 'Servicio Prevención Ajeno',
+const CFG={
+  clientId:'a58742ce-60cc-4ea1-a9b1-2ea6dd751df1',
+  tenantId:'3ac63ba7-4f34-41f6-85a0-7fb5b9be2bdb',
+  driveId:'b!0_eiUrX67U-XofAwHJeTqs9SWxlTMfBFiLMucSxWuHdaAgQD43CcQJQGO2DrfgAN',
+  fileId:'01GTLRBE3TGRLYTNGMQBF3DD7EGVY6QE5E',
+  sheet:'DATOS_FORMULARIOS',
+  scopes:['https://graph.microsoft.com/Files.Read.All']
 };
+let msal_=null,DATOS={};
+let ST={step:1,file:null,fields:[],buf:null,html:'',type:''};
 
-// ═══════════════════════════════════════════
-//  STATE
-// ═══════════════════════════════════════════
-let STATE = {
-  step: 1,
-  file: null,         // {name, type, size, buffer, source}
-  fields: [],         // [{id, label, original, value, skip}]
-  filledBuffer: null, // ArrayBuffer of filled doc
-  filledHtml: '',     // HTML for PDF print
-  docType: '',        // docx / xlsx / pdf
-};
-
-// ═══════════════════════════════════════════
-//  OFFICE.JS INIT
-// ═══════════════════════════════════════════
-let officeReady = false;
-
-if (typeof Office !== 'undefined') {
-  Office.initialize = function() {
-    officeReady = true;
-    loadEmailAttachments();
-  };
-} else {
-  document.getElementById('att-section-title').textContent = 'Adjuntos del email';
-  document.getElementById('attList').innerHTML =
-    '<div style="font-size:11px;color:var(--text3);">No disponible fuera de Outlook. Usa el área de carga.</div>';
+// ── MSAL ──
+function initMsal(){
+  msal_=new msal.PublicClientApplication({
+    auth:{clientId:CFG.clientId,authority:'https://login.microsoftonline.com/'+CFG.tenantId,redirectUri:location.origin+location.pathname},
+    cache:{cacheLocation:'localStorage',storeAuthStateInCookie:true}
+  });
+  msal_.handleRedirectPromise().then(r=>{checkAuth();}).catch(e=>{setA('err','Error: '+e.message);document.getElementById('btnLogin').style.display='';});
+}
+async function checkAuth(){
+  const accs=msal_.getAllAccounts();
+  if(!accs.length){setA('err','No autenticado');document.getElementById('btnLogin').style.display='';setSt('Inicia sesión con Microsoft 365');return;}
+  const u=accs[0];
+  setA('ld','Cargando datos SharePoint...');
+  document.getElementById('btnOut').style.display='';
+  document.getElementById('hSub').textContent=u.username;
+  try{
+    const tok=await getTok();
+    DATOS=await loadSP(tok);
+    const n=DATOS.razon_social||'INTELEC';
+    const c=DATOS.cif||'';
+    setA('ok','Datos cargados · '+n+' '+c);
+    document.getElementById('hSub').textContent=n+' · '+c;
+    setSt('Datos empresa cargados · selecciona documento');
+    chkNext();
+  }catch(e){setA('err','Error SharePoint: '+e.message);setSt('Error: '+e.message);}
+}
+async function getTok(){
+  const a=msal_.getAllAccounts();
+  if(!a.length)throw new Error('Sin sesión');
+  try{return(await msal_.acquireTokenSilent({scopes:CFG.scopes,account:a[0]})).accessToken;}
+  catch{return(await msal_.acquireTokenPopup({scopes:CFG.scopes})).accessToken;}
+}
+async function doLogin(){
+  try{await msal_.loginPopup({scopes:CFG.scopes});document.getElementById('btnLogin').style.display='none';checkAuth();}
+  catch(e){setA('err','Login cancelado');}
+}
+function doLogout(){
+  msal_.logoutPopup().then(()=>{DATOS={};setA('err','Sesión cerrada');document.getElementById('btnLogin').style.display='';document.getElementById('btnOut').style.display='none';document.getElementById('hSub').textContent='Conectar...';document.getElementById('btnNx').disabled=true;});
 }
 
-function loadEmailAttachments() {
-  const item = Office.context.mailbox.item;
-  if (!item || !item.attachments || item.attachments.length === 0) {
-    document.getElementById('attList').innerHTML =
-      '<div style="font-size:11px;color:var(--text3);padding:6px 0;">Este email no tiene adjuntos.</div>';
-    return;
-  }
+// ── SHAREPOINT ──
+async function loadSP(tok){
+  const url=`https://graph.microsoft.com/v1.0/drives/${CFG.driveId}/items/${CFG.fileId}/workbook/worksheets/${encodeURIComponent(CFG.sheet)}/usedRange`;
+  const r=await fetch(url,{headers:{Authorization:'Bearer '+tok}});
+  if(!r.ok){const e=await r.json();throw new Error(e.error?.message||'HTTP '+r.status);}
+  const d=await r.json();
+  const o={};
+  (d.values||[]).forEach(row=>{
+    const k=String(row[0]||'').trim(),v=String(row[1]||'').trim();
+    if(k&&!k.startsWith('__')&&k!=='CAMPO'&&v)o[k]=v;
+  });
+  return o;
+}
 
-  const supported = ['.docx','.doc','.xlsx','.pdf'];
-  const atts = item.attachments.filter(a =>
-    !a.isInline && supported.some(ext => a.name.toLowerCase().endsWith(ext))
-  );
+// ── OFFICE ──
+let offR=false;
+if(typeof Office!=='undefined'){Office.initialize=()=>{offR=true;loadAtts()};}
+else{document.getElementById('attL').innerHTML='<div style="font-size:11px;color:var(--t3);">Fuera de Outlook — usa carga manual.</div>';}
 
-  if (atts.length === 0) {
-    document.getElementById('attList').innerHTML =
-      '<div style="font-size:11px;color:var(--text3);">No hay adjuntos compatibles (DOCX, XLSX, PDF).</div>';
-    return;
-  }
-
-  document.getElementById('attList').innerHTML = '';
-  atts.forEach(att => {
-    const ext = att.name.split('.').pop().toLowerCase();
-    const div = document.createElement('div');
-    div.className = 'att-item';
-    div.dataset.id = att.id;
-    div.innerHTML = `
-      <div class="att-icon ${ext}">${ext.toUpperCase()}</div>
-      <div class="att-name">${att.name}</div>
-      <div class="att-size">${att.size ? formatSize(att.size) : ''}</div>
-    `;
-    div.onclick = () => selectEmailAttachment(att, div);
-    document.getElementById('attList').appendChild(div);
+function loadAtts(){
+  const item=Office.context.mailbox.item;
+  if(!item?.attachments?.length){document.getElementById('attL').innerHTML='<div style="font-size:11px;color:var(--t3);padding:6px 0;">Sin adjuntos.</div>';return;}
+  const sup=['.docx','.doc','.xlsx','.pdf'];
+  const atts=item.attachments.filter(a=>!a.isInline&&sup.some(e=>a.name.toLowerCase().endsWith(e)));
+  if(!atts.length){document.getElementById('attL').innerHTML='<div style="font-size:11px;color:var(--t3);">Sin adjuntos compatibles.</div>';return;}
+  document.getElementById('attL').innerHTML='';
+  atts.forEach(a=>{
+    const ext=a.name.split('.').pop().toLowerCase();
+    const d=document.createElement('div');
+    d.className='att-item';
+    d.innerHTML=`<div class="aico ${ext}">${ext.toUpperCase()}</div><div class="aname">${a.name}</div><div class="asize">${a.size?fmtSz(a.size):''}</div>`;
+    d.onclick=()=>selAtt(a,d);
+    document.getElementById('attL').appendChild(d);
+  });
+}
+function selAtt(a,el){
+  document.querySelectorAll('.att-item').forEach(i=>i.classList.remove('selected'));el.classList.add('selected');setSt('Descargando...');
+  Office.context.mailbox.item.getAttachmentContentAsync(a.id,r=>{
+    if(r.status!==Office.AsyncResultStatus.Succeeded){toast('Error al descargar');return;}
+    const bin=atob(r.value.content),buf=new Uint8Array(bin.length);
+    for(let i=0;i<bin.length;i++)buf[i]=bin.charCodeAt(i);
+    const ext=a.name.split('.').pop().toLowerCase();
+    ST.file={name:a.name,type:ext==='doc'?'docx':ext,size:buf.byteLength,buf:buf.buffer};
+    showSF(a.name,buf.byteLength,ext);chkNext();setSt('Listo · '+a.name);
   });
 }
 
-function selectEmailAttachment(att, el) {
-  document.querySelectorAll('.att-item').forEach(i => i.classList.remove('selected'));
-  el.classList.add('selected');
-  setStatus('Descargando adjunto...');
+// ── UPLOAD ──
+function hDrop(e){e.preventDefault();document.getElementById('uz').classList.remove('drag');if(e.dataTransfer.files[0])pFile(e.dataTransfer.files[0]);}
+function hUp(i){if(i.files[0])pFile(i.files[0]);i.value='';}
+function pFile(f){
+  const ext=f.name.split('.').pop().toLowerCase();
+  if(!['docx','doc','xlsx','pdf'].includes(ext)){toast('Formato no compatible');return;}
+  const r=new FileReader();
+  r.onload=e=>{ST.file={name:f.name,type:ext==='doc'?'docx':ext,size:f.size,buf:e.target.result};showSF(f.name,f.size,ext);chkNext();setSt('Listo · '+f.name);};
+  r.readAsArrayBuffer(f);
+}
+function showSF(n,s,ext){
+  document.getElementById('sfName').textContent=n;document.getElementById('sfSz').textContent=fmtSz(s);
+  const ic=document.getElementById('sfIco');ic.textContent=ext.toUpperCase();ic.className='aico '+(['doc','docx'].includes(ext)?'docx':ext);
+  document.getElementById('sfInfo').style.display='';document.getElementById('dlLbl').textContent=ext.toUpperCase();
+}
 
-  Office.context.mailbox.item.getAttachmentContentAsync(att.id, result => {
-    if (result.status !== Office.AsyncResultStatus.Succeeded) {
-      setStatus('Error al descargar adjunto.');
-      showToast('Error al descargar');
-      return;
-    }
-    const base64 = result.value.content;
-    const binary = atob(base64);
-    const buffer = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i++) buffer[i] = binary.charCodeAt(i);
+// ── NAV ──
+function chkNext(){document.getElementById('btnNx').disabled=!(ST.file&&Object.keys(DATOS).length>0);}
+function goNext(){
+  if(ST.step===1){if(!ST.file){toast('Selecciona documento');return;}if(!Object.keys(DATOS).length){toast('Inicia sesión primero');return;}if(!getAk()){toast('Introduce clave API Anthropic');return;}setStep(2);analyze();}
+  else if(ST.step===2){setStep(3);fillDoc();}
+}
+function goBack(){if(ST.step===2)setStep(1);else if(ST.step===3)setStep(2);}
+function setStep(n){
+  ST.step=n;
+  document.querySelectorAll('.pane').forEach((p,i)=>p.classList.toggle('active',i+1===n));
+  [1,2,3].forEach(i=>{const el=document.getElementById('s'+i);el.classList.remove('active','done');if(i<n)el.classList.add('done');if(i===n)el.classList.add('active');});
+  document.getElementById('btnBk').style.display=n>1?'':'none';
+  document.getElementById('btnNx').style.display=n<3?'':'none';
+  if(n===2)document.getElementById('btnNx').disabled=true;
+}
+function reset(){
+  ST={step:1,file:null,fields:[],buf:null,html:'',type:''};
+  document.getElementById('sfInfo').style.display='none';
+  document.querySelectorAll('.att-item').forEach(i=>i.classList.remove('selected'));
+  document.getElementById('fmap').style.display='none';document.getElementById('anlz').style.display='block';
+  document.getElementById('dlSec').style.display='none';document.getElementById('fill').style.display='none';
+  setStep(1);chkNext();
+}
 
-    const ext = att.name.split('.').pop().toLowerCase();
-    STATE.file = { name: att.name, type: ext, size: buffer.byteLength, buffer: buffer.buffer, source: 'email' };
-    STATE.docType = ext === 'doc' ? 'docx' : ext;
-
-    showSelectedFile(att.name, buffer.byteLength, ext);
-    enableNext();
-    setStatus('Adjunto listo · ' + att.name);
+// ── ANALYZE ──
+async function analyze(){
+  document.getElementById('anlz').style.display='block';document.getElementById('fmap').style.display='none';setSt('Analizando...');
+  try{
+    const txt=await exTxt(ST.file.buf,ST.file.type);
+    document.getElementById('anlzStep').textContent='Enviando a Claude...';
+    const fields=await callClaude(txt);
+    ST.fields=fields;renderFields(fields);
+    document.getElementById('anlz').style.display='none';document.getElementById('fmap').style.display='block';
+    document.getElementById('fcnt').textContent=fields.length+' campos';
+    document.getElementById('btnNx').disabled=false;setSt(fields.length+' campos · revisa y continúa');
+  }catch(e){
+    document.getElementById('anlz').style.display='none';
+    document.getElementById('fmap').innerHTML=`<div class="card" style="border-color:rgba(248,113,113,.3);"><div style="color:var(--rd);font-size:12px;font-weight:500;margin-bottom:4px;">Error</div><div style="font-size:11px;color:var(--t2);">${e.message}</div></div>`;
+    document.getElementById('fmap').style.display='block';document.getElementById('btnNx').disabled=false;setSt('Error: '+e.message);
+  }
+}
+async function exTxt(buf,type){
+  document.getElementById('anlzStep').textContent='Extrayendo texto...';
+  if(type==='docx'){const z=new JSZip();const zz=await z.loadAsync(buf);const x=await zz.file('word/document.xml').async('string');return x.replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim().substring(0,8000);}
+  if(type==='xlsx'){const wb=XLSX.read(buf,{type:'array'});let t='';wb.SheetNames.forEach(n=>{t+=XLSX.utils.sheet_to_csv(wb.Sheets[n])+'\n';});return t.substring(0,8000);}
+  return '[FORMULARIO PDF]';
+}
+async function callClaude(txt){
+  const sys=`Analiza formularios empresariales españoles. Dado un formulario y datos de empresa, identifica TODOS los campos vacíos/placeholder y asigna el dato correcto. Responde SOLO JSON sin markdown: {"campos":[{"id":"c_N","label":"nombre campo","original":"placeholder/contexto","valor":"valor a rellenar","clave_dato":"clave usada"}]}`;
+  const usr=`Datos empresa:\n${JSON.stringify(DATOS,null,2)}\n\nFormulario:\n${txt}`;
+  const r=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json','x-api-key':getAk(),'anthropic-version':'2023-06-01'},body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:2000,system:sys,messages:[{role:'user',content:usr}]})});
+  if(!r.ok){const e=await r.json();throw new Error(e.error?.message||'API '+r.status);}
+  const d=await r.json();
+  return JSON.parse(d.content[0].text.trim().replace(/```json|```/g,'').trim()).campos||[];
+}
+function renderFields(fields){
+  const l=document.getElementById('flist');
+  if(!fields.length){l.innerHTML='<div style="font-size:11px;color:var(--t3);padding:8px 0;">Sin campos detectados.</div>';document.getElementById('btnNx').disabled=false;return;}
+  l.innerHTML='';
+  fields.forEach((f,i)=>{
+    const d=document.createElement('div');d.className='frow';
+    d.innerHTML=`<div class="ffrom"><div class="fkey">${f.label}</div><div class="forig" title="${f.original||''}">${f.original||'—'}</div></div><div class="farrow">→</div><div class="fto"><input class="fvi" id="fv${i}" value="${eH(f.valor)}" placeholder="Valor..."></div><button class="fsk" id="fs${i}" onclick="togSk(${i})" title="Omitir">✕</button>`;
+    l.appendChild(d);
   });
 }
+function togSk(i){ST.fields[i].skip=!ST.fields[i].skip;document.getElementById('fs'+i).classList.toggle('sk',ST.fields[i].skip);const inp=document.getElementById('fv'+i);inp.disabled=ST.fields[i].skip;inp.style.opacity=ST.fields[i].skip?'.35':'1';}
 
-// ═══════════════════════════════════════════
-//  FILE UPLOAD
-// ═══════════════════════════════════════════
-function handleDrop(e) {
-  e.preventDefault();
-  document.getElementById('uploadZone').classList.remove('drag');
-  const file = e.dataTransfer.files[0];
-  if (file) processUploadedFile(file);
-}
-
-function handleFileUpload(input) {
-  const file = input.files[0];
-  if (file) processUploadedFile(file);
-  input.value = '';
-}
-
-function processUploadedFile(file) {
-  const ext = file.name.split('.').pop().toLowerCase();
-  const supported = ['docx','doc','xlsx','pdf'];
-  if (!supported.includes(ext)) {
-    showToast('Formato no compatible. Usa DOCX, XLSX o PDF');
-    return;
-  }
-
-  const reader = new FileReader();
-  reader.onload = e => {
-    STATE.file = { name: file.name, type: ext, size: file.size, buffer: e.target.result, source: 'upload' };
-    STATE.docType = ext === 'doc' ? 'docx' : ext;
-    showSelectedFile(file.name, file.size, ext);
-    enableNext();
-    setStatus('Archivo listo · ' + file.name);
-  };
-  reader.readAsArrayBuffer(file);
-}
-
-function showSelectedFile(name, size, ext) {
-  document.getElementById('selFileName').textContent = name;
-  document.getElementById('selFileSize').textContent = formatSize(size);
-  const icon = document.getElementById('selFileIcon');
-  icon.textContent = ext.toUpperCase();
-  icon.className = 'att-icon ' + (ext === 'doc' ? 'docx' : ext);
-  document.getElementById('selectedFileInfo').style.display = '';
-  document.getElementById('dlOrigLabel').textContent = ext.toUpperCase();
-}
-
-// ═══════════════════════════════════════════
-//  API KEY
-// ═══════════════════════════════════════════
-function saveApiKey(v) {
-  if (v) localStorage.setItem('intelec_apikey', v);
-}
-function getApiKey() {
-  return document.getElementById('apiKey').value || localStorage.getItem('intelec_apikey') || '';
-}
-function toggleApiKey() {
-  const inp = document.getElementById('apiKey');
-  const btn = document.getElementById('apiKeyToggle');
-  if (inp.type === 'password') { inp.type = 'text'; btn.textContent = 'ocultar'; }
-  else { inp.type = 'password'; btn.textContent = 'ver'; }
-}
-window.addEventListener('load', () => {
-  const saved = localStorage.getItem('intelec_apikey');
-  if (saved) document.getElementById('apiKey').value = saved;
-});
-
-// ═══════════════════════════════════════════
-//  NAVIGATION
-// ═══════════════════════════════════════════
-function goNext() {
-  if (STATE.step === 1) {
-    if (!STATE.file) { showToast('Selecciona un documento primero'); return; }
-    if (!getApiKey()) { showToast('Introduce la clave API Anthropic'); return; }
-    setStep(2);
-    analyzeDocument();
-  } else if (STATE.step === 2) {
-    setStep(3);
-    fillDocument();
+// ── FILL ──
+async function fillDoc(){
+  document.getElementById('fill').style.display='block';document.getElementById('dlSec').style.display='none';
+  ST.fields.forEach((f,i)=>{const inp=document.getElementById('fv'+i);if(inp)f.valor=inp.value;});
+  const active=ST.fields.filter(f=>!f.skip&&f.valor);
+  try{
+    setPg(10,'Preparando...');
+    if(['docx','doc'].includes(ST.file.type))ST.buf=await fillDocx(ST.file.buf,active);
+    else if(ST.file.type==='xlsx')ST.buf=await fillXlsx(ST.file.buf,active);
+    else if(ST.file.type==='pdf')ST.buf=await fillPdf(ST.file.buf,active);
+    ST.html=buildHtml(active,ST.file.name);
+    setPg(100,'Completado');await sl(300);
+    document.getElementById('fill').style.display='none';document.getElementById('dlSec').style.display='block';
+    document.getElementById('rSub').textContent=active.length+' campos · '+ST.file.name;
+    document.getElementById('prev').textContent=active.map(f=>f.label+': '+f.valor).join('\n');
+    document.getElementById('btnNx').style.display='none';setSt('Listo para descargar');
+  }catch(e){
+    document.getElementById('fill').style.display='none';
+    document.getElementById('dlSec').innerHTML=`<div class="card" style="border-color:rgba(248,113,113,.3);"><div style="color:var(--rd);font-size:12px;font-weight:500;">Error</div><div style="font-size:11px;color:var(--t2);margin-top:4px;">${e.message}</div></div><button class="btn btn-g btn-w mt8" onclick="reset()">← Reintentar</button>`;
+    document.getElementById('dlSec').style.display='block';
   }
 }
-
-function goBack() {
-  if (STATE.step === 2) setStep(1);
-  else if (STATE.step === 3) setStep(2);
+async function fillDocx(buf,fields){
+  setPg(20,'Abriendo DOCX...');const z=new JSZip();const zz=await z.loadAsync(buf);
+  let x=await zz.file('word/document.xml').async('string');
+  setPg(50,'Aplicando campos...');
+  let fi=0;
+  x=x.replace(/Haga clic aqu[íi] para escribir texto\./g,()=>{const f=fields[fi++];return f?eX(f.valor):'';});
+  fields.slice(fi).forEach(f=>{if(!f.valor)return;if(f.original&&f.original.length>4&&!f.original.includes('Haga clic')){const o=eX(f.original);if(x.includes(o))x=x.replace(o,eX(f.valor));}});
+  setPg(80,'Empaquetando...');zz.file('word/document.xml',x);
+  const out=await zz.generateAsync({type:'arraybuffer',compression:'DEFLATE'});
+  setPg(95,'Listo');return out;
 }
-
-function setStep(n) {
-  STATE.step = n;
-  document.querySelectorAll('.pane').forEach((p,i) => p.classList.toggle('active', i+1 === n));
-  [1,2,3].forEach(i => {
-    const el = document.getElementById('step-'+i);
-    el.classList.remove('active','done');
-    if (i < n) el.classList.add('done');
-    if (i === n) el.classList.add('active');
-  });
-  document.getElementById('btnBack').style.display = n > 1 ? '' : 'none';
-  document.getElementById('btnNext').style.display = n < 3 ? '' : 'none';
-  if (n === 2) document.getElementById('btnNext').disabled = true;
-  if (n === 1) document.getElementById('btnNext').disabled = !STATE.file;
-}
-
-function enableNext() {
-  document.getElementById('btnNext').disabled = false;
-}
-
-function resetAll() {
-  STATE = { step: 1, file: null, fields: [], filledBuffer: null, filledHtml: '', docType: '' };
-  document.getElementById('selectedFileInfo').style.display = 'none';
-  document.querySelectorAll('.att-item').forEach(i => i.classList.remove('selected'));
-  document.getElementById('fieldMapping').style.display = 'none';
-  document.getElementById('analyzing').style.display = 'block';
-  document.getElementById('downloadSection').style.display = 'none';
-  document.getElementById('filling').style.display = 'none';
-  document.getElementById('fileInput').value = '';
-  setStep(1);
-  document.getElementById('btnNext').disabled = true;
-  setStatus('Esperando documento...');
-}
-
-// ═══════════════════════════════════════════
-//  STEP 2: ANALYZE DOCUMENT
-// ═══════════════════════════════════════════
-async function analyzeDocument() {
-  document.getElementById('analyzing').style.display = 'block';
-  document.getElementById('fieldMapping').style.display = 'none';
-  setStatus('Analizando documento...');
-
-  try {
-    const docText = await extractText(STATE.file.buffer, STATE.docType);
-    setAnalyzingStep('Enviando a Claude...');
-    const fields = await callClaudeAnalyze(docText);
-    STATE.fields = fields;
-    renderFieldMapping(fields);
-    document.getElementById('analyzing').style.display = 'none';
-    document.getElementById('fieldMapping').style.display = 'block';
-    document.getElementById('fieldCount').textContent = fields.length + ' campos';
-    enableNext();
-    setStatus(fields.length + ' campos detectados · revisa y continúa');
-  } catch(err) {
-    document.getElementById('analyzing').style.display = 'none';
-    document.getElementById('fieldMapping').innerHTML =
-      `<div class="card" style="border-color:rgba(248,113,113,.3);">
-        <div style="color:var(--red);font-size:12px;font-weight:500;margin-bottom:4px;">Error al analizar</div>
-        <div style="font-size:11px;color:var(--text2);">${err.message}</div>
-      </div>`;
-    document.getElementById('fieldMapping').style.display = 'block';
-    setStatus('Error: ' + err.message);
-  }
-}
-
-async function extractText(buffer, type) {
-  setAnalyzingStep('Extrayendo texto del documento...');
-
-  if (type === 'docx' || type === 'doc') {
-    const zip = new JSZip();
-    const loaded = await zip.loadAsync(buffer);
-    const xmlStr = await loaded.file('word/document.xml').async('string');
-    return xmlStr.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().substring(0, 8000);
-  }
-
-  if (type === 'xlsx') {
-    const wb = XLSX.read(buffer, { type: 'array' });
-    let text = '';
-    wb.SheetNames.forEach(name => {
-      const ws = wb.Sheets[name];
-      text += XLSX.utils.sheet_to_csv(ws) + '\n';
-    });
-    return text.substring(0, 8000);
-  }
-
-  if (type === 'pdf') {
-    // PDF text extraction limited - send raw indication
-    return '[DOCUMENTO PDF - formulario con campos a rellenar. Detecta campos vacíos típicos de fichas de empresa/proveedor]';
-  }
-
-  return '';
-}
-
-async function callClaudeAnalyze(docText) {
-  const systemPrompt = `Eres un asistente que analiza formularios empresariales españoles.
-Tu tarea: dado el contenido de un formulario y los datos de la empresa INTELEC S.L., 
-identificar TODOS los campos vacíos o con placeholder y asignarles el dato correcto.
-
-Responde ÚNICAMENTE con JSON válido, sin markdown, sin texto adicional.
-Formato exacto:
-{
-  "campos": [
-    {
-      "id": "campo_1",
-      "label": "Nombre descriptivo del campo",
-      "original": "texto placeholder o contexto del campo",
-      "valor": "valor a rellenar con datos Intelec",
-      "clave_dato": "clave de DATOS_INTELEC usada"
-    }
-  ]
-}
-
-Identifica campos como: razón social, CIF, dirección, teléfono, email, IBAN, banco, 
-representante legal, DNI representante, cargo, tipo de sociedad, actividad, CNAE, 
-número Seg. Social, contacto, etc.
-
-Sé exhaustivo - detecta TODOS los campos vacíos del formulario.
-Para "original" usa el texto del placeholder o contexto previo al campo (máx 60 chars).`;
-
-  const userPrompt = `Datos empresa INTELEC S.L.:
-${JSON.stringify(DATOS, null, 2)}
-
-Contenido del formulario:
-${docText}`;
-
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'x-api-key': getApiKey(), 'anthropic-version': '2023-06-01' },
-    body: JSON.stringify({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 2000,
-      system: systemPrompt,
-      messages: [{ role: 'user', content: userPrompt }]
-    })
-  });
-
-  if (!res.ok) {
-    const err = await res.json();
-    throw new Error(err.error?.message || 'Error API (' + res.status + ')');
-  }
-
-  const data = await res.json();
-  const raw = data.content[0].text.trim();
-  const clean = raw.replace(/```json|```/g, '').trim();
-  const parsed = JSON.parse(clean);
-  return parsed.campos || [];
-}
-
-function renderFieldMapping(fields) {
-  const list = document.getElementById('fieldList');
-  if (fields.length === 0) {
-    list.innerHTML = '<div style="font-size:11px;color:var(--text3);padding:8px 0;">No se detectaron campos a rellenar. Puede que el formulario ya esté relleno o no tenga campos reconocibles.</div>';
-    enableNext();
-    return;
-  }
-
-  list.innerHTML = '';
-  fields.forEach((f, i) => {
-    const row = document.createElement('div');
-    row.className = 'field-row';
-    row.innerHTML = `
-      <div class="field-from">
-        <div class="field-key">${f.label}</div>
-        <div class="field-orig" title="${f.original}">${f.original || '—'}</div>
-      </div>
-      <div class="field-arrow">→</div>
-      <div class="field-to">
-        <input class="field-val-input" id="fval-${i}" value="${escHtml(f.valor)}" placeholder="Valor...">
-      </div>
-      <button class="field-skip" id="fskip-${i}" onclick="toggleSkip(${i})" title="Omitir campo">✕</button>
-    `;
-    list.appendChild(row);
-  });
-
-  enableNext();
-}
-
-function toggleSkip(i) {
-  STATE.fields[i].skip = !STATE.fields[i].skip;
-  const btn = document.getElementById('fskip-'+i);
-  const inp = document.getElementById('fval-'+i);
-  btn.classList.toggle('skipped', STATE.fields[i].skip);
-  inp.disabled = STATE.fields[i].skip;
-  inp.style.opacity = STATE.fields[i].skip ? '.35' : '1';
-}
-
-// ═══════════════════════════════════════════
-//  STEP 3: FILL DOCUMENT
-// ═══════════════════════════════════════════
-async function fillDocument() {
-  document.getElementById('filling').style.display = 'block';
-  document.getElementById('downloadSection').style.display = 'none';
-
-  // Sync field values from inputs
-  STATE.fields.forEach((f, i) => {
-    const inp = document.getElementById('fval-'+i);
-    if (inp) f.valor = inp.value;
-  });
-
-  const activeFields = STATE.fields.filter(f => !f.skip && f.valor);
-
-  try {
-    setFillProgress(10, 'Preparando documento...');
-
-    if (STATE.docType === 'docx' || STATE.docType === 'doc') {
-      STATE.filledBuffer = await fillDocx(STATE.file.buffer, activeFields);
-      STATE.filledHtml = await generateHtmlPreview(activeFields, STATE.file.name);
-    } else if (STATE.docType === 'xlsx') {
-      STATE.filledBuffer = await fillXlsx(STATE.file.buffer, activeFields);
-      STATE.filledHtml = await generateHtmlPreview(activeFields, STATE.file.name);
-    } else if (STATE.docType === 'pdf') {
-      STATE.filledBuffer = await fillPdf(STATE.file.buffer, activeFields);
-      STATE.filledHtml = await generateHtmlPreview(activeFields, STATE.file.name);
-    }
-
-    setFillProgress(100, 'Completado');
-    await sleep(300);
-
-    document.getElementById('filling').style.display = 'none';
-    document.getElementById('downloadSection').style.display = 'block';
-    document.getElementById('resultSub').textContent =
-      activeFields.length + ' campos rellenados · ' + STATE.file.name;
-    document.getElementById('previewContent').textContent = activeFields
-      .map(f => f.label + ': ' + f.valor).join('\n');
-    setStatus('Documento rellenado · listo para descargar');
-    document.getElementById('btnNext').style.display = 'none';
-
-  } catch(err) {
-    document.getElementById('filling').style.display = 'none';
-    document.getElementById('downloadSection').innerHTML =
-      `<div class="card" style="border-color:rgba(248,113,113,.3);">
-        <div style="color:var(--red);font-size:12px;font-weight:500;">Error al rellenar</div>
-        <div style="font-size:11px;color:var(--text2);margin-top:4px;">${err.message}</div>
-      </div>
-      <button class="btn btn-ghost btn-full mt12" onclick="resetAll()">← Reintentar</button>`;
-    document.getElementById('downloadSection').style.display = 'block';
-    setStatus('Error: ' + err.message);
-  }
-}
-
-// ── FILL DOCX ──
-async function fillDocx(buffer, fields) {
-  setFillProgress(20, 'Abriendo DOCX...');
-  const zip = new JSZip();
-  const loaded = await zip.loadAsync(buffer);
-  let docXml = await loaded.file('word/document.xml').async('string');
-
-  setFillProgress(50, 'Aplicando campos...');
-
-  // Strategy 1: Replace SDT placeholder text
-  docXml = docXml.replace(/Haga clic aqu[íi] para escribir texto\./g, () => {
-    const f = fields.shift();
-    return f ? escXml(f.valor) : '';
-  });
-
-  // Strategy 2: Replace common blank patterns after labels
-  fields.forEach(f => {
-    if (!f.valor) return;
-    const patterns = [
-      // Empty field after colon in same text run
-      new RegExp('(<w:t[^>]*>)([^<]*' + escRegex(f.label) + '[^<]*:)\\s*(</w:t>)', 'gi'),
-    ];
-    patterns.forEach(pat => {
-      docXml = docXml.replace(pat, '$1$2 ' + escXml(f.valor) + '$3');
-    });
-
-    // Replace isolated placeholder if original text found
-    if (f.original && f.original.length > 4 && !f.original.includes('Haga clic')) {
-      const orig = escXml(f.original);
-      if (docXml.includes(orig)) {
-        docXml = docXml.replace(orig, escXml(f.valor));
-      }
+async function fillXlsx(buf,fields){
+  setPg(20,'Abriendo XLSX...');const wb=XLSX.read(buf,{type:'array'});
+  setPg(50,'Aplicando...');
+  wb.SheetNames.forEach(sn=>{const ws=wb.Sheets[sn];const rng=XLSX.utils.decode_range(ws['!ref']||'A1:A1');
+    for(let r=rng.s.r;r<=rng.e.r;r++)for(let c=rng.s.c;c<=rng.e.c;c++){
+      const a=XLSX.utils.encode_cell({r,c}),cell=ws[a];if(!cell||!cell.v)continue;const s=String(cell.v);
+      fields.forEach(f=>{if(!f.valor)return;if(f.original&&s.trim()===f.original.trim()){cell.v=f.valor;cell.w=f.valor;}});
     }
   });
-
-  setFillProgress(80, 'Empaquetando...');
-  loaded.file('word/document.xml', docXml);
-  const out = await loaded.generateAsync({ type: 'arraybuffer', compression: 'DEFLATE' });
-  setFillProgress(95, 'Finalizado');
-  return out;
+  return XLSX.write(wb,{type:'arraybuffer',bookType:'xlsx'});
 }
-
-// ── FILL XLSX ──
-async function fillXlsx(buffer, fields) {
-  setFillProgress(20, 'Abriendo XLSX...');
-  const wb = XLSX.read(buffer, { type: 'array' });
-
-  setFillProgress(50, 'Aplicando campos...');
-  wb.SheetNames.forEach(shName => {
-    const ws = wb.Sheets[shName];
-    const range = XLSX.utils.decode_range(ws['!ref'] || 'A1:A1');
-    for (let r = range.s.r; r <= range.e.r; r++) {
-      for (let c = range.s.c; c <= range.e.c; c++) {
-        const addr = XLSX.utils.encode_cell({ r, c });
-        const cell = ws[addr];
-        if (!cell || !cell.v) continue;
-        const cellStr = String(cell.v);
-
-        fields.forEach(f => {
-          if (!f.valor) return;
-          // If cell contains label followed by empty/colon
-          if (cellStr.toLowerCase().includes(f.label.toLowerCase().substring(0, 10))) {
-            // Look for adjacent empty cell
-            const nextAddr = XLSX.utils.encode_cell({ r, c: c + 1 });
-            if (!ws[nextAddr] || !ws[nextAddr].v) {
-              ws[nextAddr] = { v: f.valor, t: 's' };
-            } else if (String(ws[nextAddr].v).trim() === '') {
-              ws[nextAddr].v = f.valor;
-            }
-          }
-          // Replace if cell IS the placeholder
-          if (f.original && cellStr.trim() === f.original.trim()) {
-            cell.v = f.valor;
-            cell.w = f.valor;
-          }
-        });
-      }
-    }
+async function fillPdf(buf,fields){
+  setPg(20,'Abriendo PDF...');const {PDFDocument}=PDFLib;const doc=await PDFDocument.load(buf,{ignoreEncryption:true});
+  const form=doc.getForm();setPg(50,'Rellenando...');
+  form.getFields().forEach(f=>{
+    const fn=f.getName().toLowerCase();
+    fields.forEach(fd=>{if(fn.includes(fd.label.toLowerCase().substring(0,8))||fd.label.toLowerCase().includes(fn.substring(0,8))){try{if(f.constructor.name==='PDFTextField')f.setText(fd.valor);}catch(e){}}});
   });
-
-  setFillProgress(85, 'Generando archivo...');
-  const out = XLSX.write(wb, { type: 'arraybuffer', bookType: 'xlsx' });
-  return out;
+  const bytes=await doc.save();return bytes.buffer;
 }
-
-// ── FILL PDF ──
-async function fillPdf(buffer, fields) {
-  setFillProgress(20, 'Abriendo PDF...');
-  const { PDFDocument } = PDFLib;
-  const pdfDoc = await PDFDocument.load(buffer, { ignoreEncryption: true });
-  const form = pdfDoc.getForm();
-
-  setFillProgress(50, 'Rellenando campos...');
-  const formFields = form.getFields();
-
-  formFields.forEach(field => {
-    const fname = field.getName().toLowerCase();
-    fields.forEach(f => {
-      const label = f.label.toLowerCase();
-      if (fname.includes(label.substring(0, 8)) ||
-          label.includes(fname.substring(0, 8))) {
-        try {
-          if (field.constructor.name === 'PDFTextField') {
-            field.setText(f.valor);
-          }
-        } catch(e) {}
-      }
-    });
-  });
-
-  // If no form fields, generate new PDF with text overlay
-  if (formFields.length === 0) {
-    // Return original - will use HTML for PDF
-    return buffer;
-  }
-
-  setFillProgress(90, 'Guardando PDF...');
-  const bytes = await pdfDoc.save();
-  return bytes.buffer;
-}
-
-// ── HTML PREVIEW for PDF PRINT ──
-async function generateHtmlPreview(fields, filename) {
-  const rows = fields.map(f =>
-    `<tr><td class="lbl">${escHtml(f.label)}</td><td class="val">${escHtml(f.valor)}</td></tr>`
-  ).join('');
-
-  return `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8">
-<title>${escHtml(filename)} — Intelec</title>
-<style>
-  body{font-family:'Helvetica Neue',Arial,sans-serif;font-size:11pt;color:#111;padding:30px 40px;max-width:800px;margin:0 auto}
-  .header{display:flex;align-items:center;gap:16px;border-bottom:2px solid #000;padding-bottom:14px;margin-bottom:20px}
-  .logo-box{background:#000;color:#fff;font-size:11px;font-weight:700;padding:8px 10px;border-radius:4px;letter-spacing:.05em}
-  h1{font-size:14pt;font-weight:700;margin:0 0 2px}
-  .sub{font-size:9pt;color:#666}
-  table{width:100%;border-collapse:collapse;margin-top:10px}
-  th{background:#000;color:#fff;padding:7px 12px;font-size:9pt;text-align:left;font-weight:600;letter-spacing:.04em}
-  td{padding:7px 12px;border-bottom:1px solid #e5e5e5;vertical-align:top}
-  td.lbl{font-size:9pt;color:#555;width:40%;font-weight:500}
-  td.val{font-size:10pt;font-weight:600}
-  .footer{margin-top:30px;padding-top:12px;border-top:1px solid #ddd;font-size:8pt;color:#999;display:flex;justify-content:space-between}
-  @media print{body{padding:20px 25px}.footer{position:fixed;bottom:0;left:0;right:0;padding:8px 25px;background:#fff}}
-</style>
+function buildHtml(fields,fname){
+  const n=DATOS.razon_social||'INTELEC, S.L.',c=DATOS.cif||'B28805398',d=DATOS.direccion_completa||'';
+  const rows=fields.map(f=>`<tr><td class="l">${eH(f.label)}</td><td class="v">${eH(f.valor)}</td></tr>`).join('');
+  return `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><title>${eH(fname)}</title>
+<style>body{font-family:'Helvetica Neue',Arial,sans-serif;font-size:11pt;color:#111;padding:30px 40px;max-width:800px;margin:0 auto}
+.hdr{display:flex;align-items:center;gap:16px;border-bottom:2px solid #000;padding-bottom:14px;margin-bottom:20px}
+.lb{background:#000;color:#fff;font-size:11px;font-weight:700;padding:8px 10px;border-radius:4px;letter-spacing:.05em}
+h1{font-size:14pt;font-weight:700;margin:0 0 2px}.sub{font-size:9pt;color:#666}
+table{width:100%;border-collapse:collapse}th{background:#000;color:#fff;padding:7px 12px;font-size:9pt;text-align:left;font-weight:600}
+td{padding:7px 12px;border-bottom:1px solid #e5e5e5}td.l{font-size:9pt;color:#555;width:38%;font-weight:500}td.v{font-size:10pt;font-weight:600}
+.ft{margin-top:28px;padding-top:10px;border-top:1px solid #ddd;font-size:8pt;color:#999;display:flex;justify-content:space-between}
+@media print{@page{margin:1.5cm}}</style>
 </head><body>
-<div class="header">
-  <div class="logo-box">INTELEC</div>
-  <div>
-    <h1>${escHtml(filename)}</h1>
-    <div class="sub">INTELEC, S.L. · CIF B28805398 · ${new Date().toLocaleDateString('es-ES')}</div>
-  </div>
-</div>
-<table>
-  <tr><th>Campo</th><th>Valor rellenado</th></tr>
-  ${rows}
-</table>
-<div class="footer">
-  <span>INTELEC, S.L. · C/ Amado Nervo 13-15, Local · 28007 Madrid</span>
-  <span>Generado por Intelec Rellena Formularios v1.0</span>
-</div>
+<div class="hdr"><div class="lb">INTELEC</div><div><h1>${eH(fname)}</h1><div class="sub">${eH(n)} · CIF ${eH(c)} · ${new Date().toLocaleDateString('es-ES')}</div></div></div>
+<table><tr><th>Campo</th><th>Valor rellenado</th></tr>${rows}</table>
+<div class="ft"><span>${eH(n)} · ${eH(d)}</span><span>Intelec Rellena Formularios v1.1</span></div>
 </body></html>`;
 }
 
-// ═══════════════════════════════════════════
-//  DOWNLOAD
-// ═══════════════════════════════════════════
-function downloadPDF() {
-  if (!STATE.filledHtml) { showToast('Sin contenido para PDF'); return; }
-  const win = window.open('', '_blank');
-  win.document.write(STATE.filledHtml);
-  win.document.close();
-  setTimeout(() => { win.focus(); win.print(); }, 600);
-  setStatus('Diálogo de impresión abierto — guarda como PDF');
+// ── DOWNLOAD ──
+function dlPDF(){const w=window.open('','_blank');w.document.write(ST.html);w.document.close();setTimeout(()=>{w.focus();w.print();},600);setSt('Impresión abierta — guarda como PDF');}
+function dlOrig(){
+  if(!ST.buf){toast('Sin documento');return;}
+  const ext=ST.file.type;
+  const m={docx:'application/vnd.openxmlformats-officedocument.wordprocessingml.document',xlsx:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',pdf:'application/pdf'};
+  const base=ST.file.name.replace(/\.[^.]+$/,'');
+  const b=new Blob([ST.buf],{type:m[ext]||'application/octet-stream'});
+  const u=URL.createObjectURL(b);const a=document.createElement('a');a.href=u;a.download=base+'_INTELEC.'+ext;a.click();URL.revokeObjectURL(u);
 }
 
-function downloadOriginal() {
-  if (!STATE.filledBuffer) { showToast('Documento no generado'); return; }
-  const ext = STATE.docType === 'doc' ? 'docx' : STATE.docType;
-  const mimes = { docx:'application/vnd.openxmlformats-officedocument.wordprocessingml.document', xlsx:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', pdf:'application/pdf' };
-  const mime = mimes[ext] || 'application/octet-stream';
-  const baseName = STATE.file.name.replace(/\.[^.]+$/, '');
-  const blob = new Blob([STATE.filledBuffer], { type: mime });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url; a.download = baseName + '_INTELEC.' + ext;
-  a.click();
-  URL.revokeObjectURL(url);
-  showToast('Descargando ' + ext.toUpperCase() + '...');
-}
+// ── API KEY ──
+function saveAk(v){if(v)localStorage.setItem('int_ak',v);}
+function getAk(){return document.getElementById('ak').value||localStorage.getItem('int_ak')||'';}
+function togAk(){const i=document.getElementById('ak'),b=i.nextElementSibling;if(i.type==='password'){i.type='text';b.textContent='ocultar';}else{i.type='password';b.textContent='ver';}}
 
-// ═══════════════════════════════════════════
-//  UTILS
-// ═══════════════════════════════════════════
-function setStatus(msg) { document.getElementById('ftrStatus').textContent = msg; }
-function setAnalyzingStep(msg) { document.getElementById('analyzing-step').textContent = msg; }
-function setFillProgress(pct, label) {
-  document.getElementById('fillProgress').style.width = pct + '%';
-  document.getElementById('fillLabel').textContent = label;
-}
-function formatSize(bytes) {
-  if (bytes < 1024) return bytes + ' B';
-  if (bytes < 1048576) return (bytes/1024).toFixed(0) + ' KB';
-  return (bytes/1048576).toFixed(1) + ' MB';
-}
-function escHtml(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
-function escXml(s) { return escHtml(s); }
-function escRegex(s) { return String(s||'').replace(/[.*+?^${}()|[\]\\]/g,'\\$&'); }
-function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+// ── UTILS ──
+function setSt(m){document.getElementById('fts').textContent=m;}
+function setPg(p,l){document.getElementById('pgf').style.width=p+'%';document.getElementById('pgl').textContent=l;}
+function setA(t,m){const d=document.getElementById('aDot');d.className='dot '+(t==='ok'?'ok':t==='ld'?'ld':'err');document.getElementById('aMsg').textContent=m;}
+function fmtSz(b){if(b<1024)return b+' B';if(b<1048576)return(b/1024).toFixed(0)+' KB';return(b/1048576).toFixed(1)+' MB';}
+function eH(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+function eX(s){return eH(s);}
+function sl(ms){return new Promise(r=>setTimeout(r,ms));}
+let _tt;
+function toast(m){const t=document.getElementById('toast');t.textContent=m;t.classList.add('on');clearTimeout(_tt);_tt=setTimeout(()=>t.classList.remove('on'),2400);}
 
-let _toastTimer;
-function showToast(msg) {
-  const t = document.getElementById('toast');
-  t.textContent = msg;
-  t.classList.add('show');
-  clearTimeout(_toastTimer);
-  _toastTimer = setTimeout(() => t.classList.remove('show'), 2400);
-}
+// ── BOOT ──
+window.addEventListener('load',()=>{
+  const k=localStorage.getItem('int_ak');if(k)document.getElementById('ak').value=k;
+  initMsal();
+  if(!offR)document.getElementById('attL').innerHTML='<div style="font-size:11px;color:var(--t3);">Fuera de Outlook — usa carga manual.</div>';
+  setSt('Iniciando...');
+});
 </script>
 </body>
 </html>
