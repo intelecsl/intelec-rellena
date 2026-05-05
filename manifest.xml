@@ -13,7 +13,7 @@
   <DisplayName DefaultValue="Intelec Rellena Formularios"/>
   <Description DefaultValue="Rellena formularios de alta de proveedor y contratos con los datos de INTELEC S.L. automáticamente usando IA."/>
 
-  <IconUrl DefaultValue="https://TU-USUARIO.github.io/intelec-rellena/icon-64.png"/>
+  <IconUrl DefaultValue="https://intelecsl.github.io/intelec-rellena/icon-64.png"/>
   <HighResolutionIconUrl DefaultValue="https://TU-USUARIO.github.io/intelec-rellena/icon-128.png"/>
   <SupportUrl DefaultValue="https://github.com/TU-USUARIO/intelec-rellena"/>
 
@@ -34,7 +34,7 @@
   <FormSettings>
     <Form xsi:type="ItemRead">
       <DesktopSettings>
-        <SourceLocation DefaultValue="https://TU-USUARIO.github.io/intelec-rellena/index.html"/>
+        <SourceLocation DefaultValue="https://intelecsl.github.io/intelec-rellena/index.html"/>
         <RequestedHeight>500</RequestedHeight>
       </DesktopSettings>
     </Form>
@@ -117,13 +117,13 @@
 
     <Resources>
       <bt:Images>
-        <bt:Image id="Icon.16x16"  DefaultValue="https://TU-USUARIO.github.io/intelec-rellena/icon-16.png"/>
-        <bt:Image id="Icon.32x32"  DefaultValue="https://TU-USUARIO.github.io/intelec-rellena/icon-32.png"/>
-        <bt:Image id="Icon.80x80"  DefaultValue="https://TU-USUARIO.github.io/intelec-rellena/icon-128.png"/>
+        <bt:Image id="Icon.16x16"  DefaultValue="https://intelecsl.github.io/intelec-rellena/icon-16.png"/>
+        <bt:Image id="Icon.32x32"  DefaultValue="https://intelecsl.github.io/intelec-rellena/icon-32.png"/>
+        <bt:Image id="Icon.80x80"  DefaultValue="https://intelecsl.github.io/intelec-rellena/icon-128.png"/>
       </bt:Images>
       <bt:Urls>
-        <bt:Url id="FunctionFile.Url"       DefaultValue="https://TU-USUARIO.github.io/intelec-rellena/index.html"/>
-        <bt:Url id="Taskpane.Url"           DefaultValue="https://TU-USUARIO.github.io/intelec-rellena/index.html"/>
+        <bt:Url id="FunctionFile.Url"       DefaultValue="https://intelecsl.github.io/intelec-rellena/index.html"/>
+        <bt:Url id="Taskpane.Url"           DefaultValue="https://intelecsl.github.io/intelec-rellena/index.html"/>
       </bt:Urls>
       <bt:ShortStrings>
         <bt:String id="GroupLabel"              DefaultValue="Intelec"/>
