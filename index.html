@@ -156,7 +156,7 @@ body{font-family:var(--f);background:var(--bg);color:var(--text);font-size:13px;
 .rbox .icon{font-size:28px;margin-bottom:6px}
 .rbox h3{font-family:var(--fh);font-size:14px;font-weight:700;color:var(--gold);margin-bottom:4px}
 .rbox p{font-size:11px;color:rgba(255,255,255,.65)}
-.dlrow{display:grid;grid-template-columns:1fr;gap:8px;margin-top:12px}
+.dlrow{display:flex;flex-direction:column;gap:6px;margin-top:12px}
 
 /* ── FOOTER ── */
 .ftr{background:var(--bg2);padding:10px 14px;border-top:2px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-shrink:0;gap:8px}
@@ -186,7 +186,7 @@ body{font-family:var(--f);background:var(--bg);color:var(--text);font-size:13px;
     <div class="ht">Rellena Formularios</div>
     <div class="hs" id="hSub">Conectando a SharePoint...</div>
   </div>
-  <div class="ver">v4.2</div>
+  <div class="ver">v4.3</div>
 </div>
 
 <!-- STEPS -->
@@ -278,7 +278,7 @@ body{font-family:var(--f);background:var(--bg);color:var(--text);font-size:13px;
         <h3>Documento rellenado</h3>
         <p id="rSub">Listo para descargar</p>
         <div class="dlrow">
-          <button class="btn btn-gold btn-w" onclick="dlOrig()" style="font-weight:600;">⬇ Descargar <span id="dlLbl">documento</span></button>
+          <button class="btn btn-gold btn-w" onclick="dlPDF()" style="font-weight:600;">⬇ Descargar PDF</button><button class="btn btn-g btn-w" onclick="dlOrig()" style="font-size:11px;margin-top:6px;">⬇ Descargar original (<span id="dlLbl">DOCX</span>)</button>
         </div>
       </div>
       <div class="stitle-block"><span>Vista previa</span></div>
@@ -552,7 +552,7 @@ function pFile(f){
 function showSF(n,s,ext){
   document.getElementById('sfName').textContent=n;document.getElementById('sfSz').textContent=fmtSz(s);
   const ic=document.getElementById('sfIco');ic.textContent=ext.toUpperCase();ic.className='aico '+(['doc','docx'].includes(ext)?'docx':ext);
-  document.getElementById('sfInfo').style.display='';document.getElementById('dlLbl').textContent='('+ext.toUpperCase()+' rellenado)';
+  document.getElementById('sfInfo').style.display='';document.getElementById('dlLbl').textContent=ext.toUpperCase();
 }
 
 // ── NAV ──
@@ -891,31 +891,40 @@ async function fillDocx(buf,fields){
 
   setPg(40,'Aplicando campos...');
   let replaced = 0;
+  const valores = fields.filter(f => f.valor && !f.skip).map(f => f.valor);
+  let pIdx = 0;
 
+  // ESTRATEGIA 1: Buscar <w:t>Haga clic aquí para escribir texto.</w:t> dentro del XML
+  // Esto cubre los Content Controls de Word con placeholder estándar
+  const placeholderRe = /<w:t([^>]*)>([^<]*?Haga clic[^<]*?escribir[^<]*?)<\/w:t>/gi;
+  x = x.replace(placeholderRe, (match, attrs, content) => {
+    if(pIdx >= valores.length) return match;
+    const valor = eX(valores[pIdx++]);
+    replaced++;
+    // Mantener atributos como xml:space="preserve"
+    const attrsClean = attrs.includes('xml:space') ? attrs : attrs + ' xml:space="preserve"';
+    return '<w:t' + attrsClean + '>' + valor + '</w:t>';
+  });
+
+  // ESTRATEGIA 2: Texto literal de "buscar" devuelto por Claude
   for(const f of fields){
     if(!f.valor || f.skip) continue;
-    const valor = eX(f.valor);
-
-    // 1) Reemplazar placeholder "Haga clic aquí para escribir texto"
-    if(f.original && /haga clic.*escribir/i.test(f.original)){
-      const re = /Haga clic aqu[íi] para escribir texto\./;
-      if(re.test(x)){ x = x.replace(re, valor); replaced++; continue; }
+    if(!f.original || f.original.length < 4) continue;
+    if(/haga clic.*escribir/i.test(f.original)) continue; // ya cubierto arriba
+    const placeholder = eX(f.original);
+    if(x.includes(placeholder)){
+      x = x.replace(placeholder, eX(f.valor));
+      replaced++;
     }
+  }
 
-    // 2) Reemplazar texto literal del placeholder
-    if(f.original && f.original.length >= 4){
-      const placeholder = eX(f.original);
-      if(x.includes(placeholder)){
-        x = x.replace(placeholder, valor);
-        replaced++;
-        continue;
-      }
-    }
-
-    // 3) Reemplazar guiones bajos largos (placeholders genéricos)
-    const underscores = /_{4,}/;
-    if(underscores.test(x)){
-      x = x.replace(underscores, valor);
+  // ESTRATEGIA 3: Guiones bajos largos
+  for(const f of fields){
+    if(!f.valor || f.skip) continue;
+    if(replaced >= valores.length) break;
+    const m = x.match(/_{4,}/);
+    if(m){
+      x = x.replace(/_{4,}/, eX(f.valor));
       replaced++;
     }
   }
@@ -923,7 +932,7 @@ async function fillDocx(buf,fields){
   setPg(80,'Empaquetando...');
   zz.file('word/document.xml', x);
   const out = await zz.generateAsync({type:'arraybuffer', compression:'DEFLATE'});
-  setPg(95,'Listo · '+replaced+'/'+fields.length+' rellenados');
+  setPg(95,'Listo · '+replaced+'/'+valores.length+' rellenados');
   return out;
 }
 async function fillXlsx(buf,fields){
@@ -937,7 +946,7 @@ async function fillXlsx(buf,fields){
       fields.forEach(f=>{if(!f.valor)return;if(f.original&&s.trim()===f.original.trim()){cell.v=f.valor;cell.w=f.valor;}});
     }
   });
-  return XLSX.write(wb,{type:'arraybuffer',bookType:'xlsx'});
+  const wbout = XLSX.write(wb,{type:'array',bookType:'xlsx'}); return wbout instanceof Uint8Array ? wbout.buffer : wbout;
 }
 async function fillPdf(buf,fields){
   setPg(20,'Abriendo PDF...');
@@ -971,24 +980,72 @@ td{padding:7px 12px;border-bottom:1px solid #e5e5e5}td.l{font-size:9pt;color:#55
 }
 
 // ── DOWNLOAD ──
-function dlPDF(){
-  // Descarga directa del documento rellenado
-  if(!ST.buf){toast('Documento no preparado');return;}
+async function dlPDF(){
+  if(!ST.buf){ toast('Documento no preparado'); return; }
   const ext = ST.file.type;
-  const m = {
-    docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    pdf:  'application/pdf'
-  };
-  const base = ST.file.name.replace(/\.[^.]+$/,'');
-  const b = new Blob([ST.buf],{type:m[ext]||'application/octet-stream'});
+  const baseName = ST.file.name.replace(/\.[^.]+$/,'') + '_INTELEC';
+
+  // Si ya es PDF, descargarlo directamente
+  if(ext === 'pdf'){
+    _download(ST.buf, baseName+'.pdf', 'application/pdf');
+    return;
+  }
+
+  // Para DOCX/XLSX: usar Microsoft Graph para convertir a PDF
+  setSt('Convirtiendo a PDF via Microsoft Graph...');
+  toast('Convirtiendo a PDF, espera...');
+
+  try{
+    const tok = await getStoredToken();
+    if(!tok) throw new Error('Sin token Graph');
+
+    // 1) Subir a OneDrive temporal
+    const tempName = '_temp_intelec_'+Date.now()+'.'+ext;
+    const mime = ext==='docx'
+      ? 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+      : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+
+    const upR = await fetch('https://graph.microsoft.com/v1.0/me/drive/root:/'+encodeURIComponent(tempName)+':/content',{
+      method:'PUT',
+      headers:{'Authorization':'Bearer '+tok,'Content-Type':mime},
+      body: ST.buf
+    });
+    if(!upR.ok) throw new Error('Subida temporal: '+upR.status);
+    const upD = await upR.json();
+    const itemId = upD.id;
+
+    // 2) Pedir el contenido como PDF
+    const pdfR = await fetch('https://graph.microsoft.com/v1.0/me/drive/items/'+itemId+'/content?format=pdf',{
+      headers:{'Authorization':'Bearer '+tok}
+    });
+    if(!pdfR.ok) throw new Error('Conversión PDF: '+pdfR.status);
+    const pdfBuf = await pdfR.arrayBuffer();
+
+    // 3) Borrar archivo temporal
+    fetch('https://graph.microsoft.com/v1.0/me/drive/items/'+itemId,{
+      method:'DELETE',
+      headers:{'Authorization':'Bearer '+tok}
+    }).catch(()=>{});
+
+    // 4) Descargar el PDF
+    _download(pdfBuf, baseName+'.pdf', 'application/pdf');
+    setSt('PDF descargado · '+baseName+'.pdf');
+  }catch(e){
+    toast('Error PDF: '+e.message+' — descargando original');
+    setSt('Error conversión: '+e.message);
+    // Fallback: descargar el original
+    dlOrig();
+  }
+}
+
+function _download(buf, filename, mime){
+  const b = new Blob([buf],{type:mime||'application/octet-stream'});
   const u = URL.createObjectURL(b);
   const a = document.createElement('a');
   a.href = u;
-  a.download = base + '_INTELEC.' + ext;
+  a.download = filename;
   a.click();
   URL.revokeObjectURL(u);
-  setSt('Descargado · '+a.download);
 }
 function dlOrig(){
   if(!ST.buf){toast('Sin documento');return;}
