@@ -186,7 +186,7 @@ body{font-family:var(--f);background:var(--bg);color:var(--text);font-size:13px;
     <div class="ht">Rellena Formularios</div>
     <div class="hs" id="hSub">Conectando a SharePoint...</div>
   </div>
-  <div class="ver">v4.0</div>
+  <div class="ver">v4.1</div>
 </div>
 
 <!-- STEPS -->
@@ -210,8 +210,12 @@ body{font-family:var(--f);background:var(--bg);color:var(--text);font-size:13px;
     <button class="btn btn-login" id="btnLogin" onclick="doLogin()" style="display:none;">Iniciar sesión con Microsoft 365</button>
     <button class="btn btn-g btn-w" id="btnOut" onclick="doLogout()" style="display:none;font-size:11px;margin-bottom:10px;">Cerrar sesión</button>
 
-    <!-- Clave API se lee desde SharePoint, oculta -->
-    <input type="hidden" id="ak">
+    <!-- Clave API: opcional, mejora detección con IA -->
+    <input type="password" id="ak" style="display:none;">
+    <div id="akCfg" style="margin-top:6px;margin-bottom:6px;display:flex;align-items:center;justify-content:space-between;font-size:10px;">
+      <span style="color:var(--text3);">Detección: <span id="akMode">básica (local)</span></span>
+      <button onclick="cfgApiKey()" style="font-size:10px;background:none;border:none;color:var(--gold);cursor:pointer;padding:0;text-decoration:underline;">configurar IA</button>
+    </div>
 
     <div class="stitle-block mt12"><span>Documento a rellenar</span></div>
 
@@ -631,24 +635,47 @@ function _findField(line){
 }
 
 function localAnalyze(text){
-  // Dividir en líneas por: saltos de línea, dobles puntos, separadores tabulares
-  const lines = text.split(/[\n\r]+|(?<=:)\s+|\t+/).map(l=>l.trim()).filter(l=>l.length>2 && l.length<200);
-  const found = new Map(); // key -> {label, valor}
+  // Trocear por saltos de línea, tabs y separadores típicos
+  const chunks = text
+    .split(/[\n\r]+|\t+|(?<=:)\s{2,}/)
+    .map(l=>l.trim())
+    .filter(l => l.length >= 2 && l.length < 250);
 
-  for(const line of lines){
-    const key = _findField(line);
-    if(!key) continue;
-    if(found.has(key)) continue;  // evitar duplicados
+  const found = new Map();
+
+  for(const chunk of chunks){
+    const key = _findField(chunk);
+    if(!key || found.has(key)) continue;
     const valor = DATOS[key];
-    if(!valor) continue;  // sin valor en SharePoint, saltar
+    if(!valor) continue;
     found.set(key, {
       field: key,
-      label: line.replace(/[:\.\s]+$/,'').substring(0,80),
+      label: chunk.replace(/[:\.\s_\-]+$/,'').substring(0,80),
       original: '',
       valor: valor,
       clave_dato: key
     });
   }
+
+  // Si encontramos pocos, hacer una pasada más agresiva: buscar palabras clave en TODO el texto
+  if(found.size < 3){
+    const fullNorm = _normalize(text);
+    for(const [key, patterns] of Object.entries(KEYWORDS)){
+      if(found.has(key)) continue;
+      const valor = DATOS[key];
+      if(!valor) continue;
+      for(const p of patterns){
+        if(fullNorm.includes(_normalize(p))){
+          found.set(key, {
+            field: key, label: p.charAt(0).toUpperCase()+p.slice(1),
+            original: '', valor: valor, clave_dato: key
+          });
+          break;
+        }
+      }
+    }
+  }
+
   return Array.from(found.values());
 }
 
@@ -659,9 +686,25 @@ async function analyze(){
   try{
     document.getElementById('anlzStep').textContent='Extrayendo texto del documento...';
     const txt = await exTxt(ST.file.buf, ST.file.type);
-    document.getElementById('anlzStep').textContent='Detectando campos por palabras clave...';
-    await sl(300);  // pequeña pausa para ver el progreso
-    const fields = localAnalyze(txt);
+
+    // Si hay clave API en SharePoint → usar Claude (mejor detección)
+    // Si no → matching local por palabras clave (gratis)
+    const ak = getAk();
+    let fields;
+    if(ak && ak.startsWith('sk-ant-')){
+      document.getElementById('anlzStep').textContent='Analizando con Claude AI...';
+      try{
+        fields = await callClaude(txt);
+      }catch(e){
+        document.getElementById('anlzStep').textContent='IA falló, usando detección local...';
+        await sl(400);
+        fields = localAnalyze(txt);
+      }
+    } else {
+      document.getElementById('anlzStep').textContent='Detectando campos (modo local)...';
+      await sl(300);
+      fields = localAnalyze(txt);
+    }
     ST.fields = fields;
     renderFields(fields);
     document.getElementById('anlz').style.display='none';
@@ -683,37 +726,76 @@ async function analyze(){
 }
 async function exTxt(buf,type){
   document.getElementById('anlzStep').textContent='Extrayendo texto...';
-  // Convertir a Uint8Array si viene como ArrayBuffer
   const u8 = buf instanceof ArrayBuffer ? new Uint8Array(buf) : buf;
+
   if(type==='docx'||type==='doc'){
     const z=new JSZip();
     const zz=await z.loadAsync(u8);
     const docXml = zz.file('word/document.xml');
     if(!docXml) throw new Error('Documento Word inválido');
-    const x = await docXml.async('string');
-    return x.replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim().substring(0,8000);
+    let x = await docXml.async('string');
+    // Preservar saltos de párrafo, celdas de tabla y filas como saltos de línea
+    x = x
+      .replace(/<w:br[^>]*\/?>/g, '\n')
+      .replace(/<\/w:p>/g, '\n')
+      .replace(/<\/w:tc>/g, '\t')
+      .replace(/<\/w:tr>/g, '\n')
+      .replace(/<[^>]+>/g, '')          // quitar resto de tags
+      .replace(/[ \t]+/g, ' ')          // colapsar espacios pero mantener saltos
+      .replace(/\n[ \t]+/g, '\n')      // limpiar inicio de línea
+      .replace(/\n{3,}/g, '\n\n')      // máximo doble salto
+      .trim();
+    return x.substring(0, 12000);
   }
+
   if(type==='xlsx'){
     const wb=XLSX.read(u8,{type:'array'});
     let t='';
-    wb.SheetNames.forEach(n=>{t+=XLSX.utils.sheet_to_csv(wb.Sheets[n])+'\n';});
-    return t.substring(0,8000);
+    wb.SheetNames.forEach(n=>{
+      const csv = XLSX.utils.sheet_to_csv(wb.Sheets[n], {FS:'\t', RS:'\n'});
+      t += csv + '\n';
+    });
+    return t.substring(0, 12000);
   }
+
   if(type==='pdf'){
-    // Extraer texto del PDF usando pdf-lib (limitado, pero suficiente para forms)
     try{
       const {PDFDocument}=PDFLib;
       const doc=await PDFDocument.load(u8,{ignoreEncryption:true});
       const form=doc.getForm();
-      const fieldNames=form.getFields().map(f=>f.getName());
-      return fieldNames.join('\n');
+      const names = form.getFields().map(f=>f.getName());
+      return names.length > 0 ? names.join('\n') : '[PDF sin campos de formulario]';
     }catch(e){
-      return '[PDF sin formulario detectable]';
+      return '[PDF: '+e.message+']';
     }
   }
   return '';
 }
-// callClaude eliminado — usamos localAnalyze sin coste
+async function callClaude(txt){
+  const sys = 'Analiza formularios empresariales españoles. Dado un formulario y datos de empresa, identifica TODOS los campos vacíos/placeholder y asigna el dato correcto. Responde SOLO JSON sin markdown: {"campos":[{"id":"c_N","label":"nombre campo","original":"placeholder/contexto","valor":"valor a rellenar","clave_dato":"clave usada"}]}';
+  const usr = 'Datos empresa:\n' + JSON.stringify(DATOS, null, 2) + '\n\nFormulario:\n' + txt;
+  const r = await fetch('https://api.anthropic.com/v1/messages', {
+    method:'POST',
+    headers:{
+      'Content-Type':'application/json',
+      'x-api-key':getAk(),
+      'anthropic-version':'2023-06-01',
+      'anthropic-dangerous-direct-browser-access':'true'
+    },
+    body: JSON.stringify({
+      model:'claude-haiku-4-5',
+      max_tokens:2000,
+      system:sys,
+      messages:[{role:'user',content:usr}]
+    })
+  });
+  if(!r.ok){
+    const e=await r.json().catch(()=>({}));
+    throw new Error(e.error?.message || 'API '+r.status);
+  }
+  const d = await r.json();
+  return JSON.parse(d.content[0].text.trim().replace(/```json|```/g,'').trim()).campos || [];
+}
 function renderFields(fields){
   const l=document.getElementById('flist');
   if(!fields.length){l.innerHTML='<div style="font-size:11px;color:var(--t3);padding:8px 0;">Sin campos detectados.</div>';document.getElementById('btnNx').disabled=false;return;}
@@ -835,6 +917,26 @@ function dlOrig(){
 }
 
 // ── API KEY ──
+function cfgApiKey(){
+  const cur = getAk();
+  const v = prompt('Clave Anthropic API (sk-ant-api03-...):\n\nObtén una gratis en console.anthropic.com\n(5$ de crédito al registrarte)\n\nDeja vacío para usar detección local.', cur || '');
+  if(v === null) return;
+  if(v.trim() === ''){
+    localStorage.removeItem('int_ak');
+    document.getElementById('akMode').textContent = 'básica (local)';
+    toast('Detección local activada');
+  } else if(v.startsWith('sk-ant-')){
+    localStorage.setItem('int_ak', v.trim());
+    document.getElementById('akMode').textContent = 'IA (Claude)';
+    toast('IA activada');
+  } else {
+    toast('Clave no válida (debe empezar con sk-ant-)');
+  }
+}
+function _updateAkMode(){
+  const m = document.getElementById('akMode');
+  if(m) m.textContent = getAk() ? 'IA (Claude)' : 'básica (local)';
+}
 function saveAk(v){if(v)localStorage.setItem('int_ak',v);}
 function getAk(){
   // 1) Prioridad: clave desde SharePoint (DATOS_FORMULARIOS)
@@ -861,6 +963,7 @@ function toast(m){const t=document.getElementById('toast');t.textContent=m;t.cla
 window.addEventListener('load', () => {
   const k = localStorage.getItem('int_ak');
   if(k) document.getElementById('ak').value = k;
+  setTimeout(_updateAkMode, 100);
 });
 </script>
 </body>
