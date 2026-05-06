@@ -98,11 +98,15 @@ body{font-family:var(--f);background:var(--bg);color:var(--text);font-size:13px;
 .asize{font-size:10px;color:var(--text3);flex-shrink:0;font-family:monospace}
 
 /* ── UPLOAD ── */
-.upzone{border:2px dashed var(--border2);border-radius:var(--r2);padding:20px 14px;text-align:center;cursor:pointer;transition:.2s;margin-top:8px;background:var(--bg2)}
-.upzone:hover,.upzone.drag{border-color:var(--gold);background:var(--gold2)}
-.upzone-icon{font-size:24px;margin-bottom:6px;display:block}
-.upzone strong{color:var(--navy);font-family:var(--fh);font-size:12px;font-weight:600}
-.upzone p{font-size:11px;color:var(--text3);margin-top:3px}
+.btn-mail-int{background:var(--gold2);border:1px solid var(--gold);color:var(--navy);border-radius:var(--r);padding:9px 12px;font-size:12.5px;font-weight:600;cursor:pointer;font-family:var(--fh);width:100%;text-align:center;transition:.15s;margin-bottom:8px;display:none;}
+.btn-mail-int:hover{background:var(--gold);color:var(--navy);}
+.drop-zone-int{background:var(--bg2);border:1.5px dashed var(--border2);border-radius:var(--r2);padding:18px 12px;text-align:center;cursor:pointer;transition:.2s;position:relative;}
+.drop-zone-int:hover,.drop-zone-int.drag-over{border-color:var(--gold);background:var(--gold2);}
+.drop-zone-int input[type="file"]{position:absolute;inset:0;opacity:0;cursor:pointer;display:block !important;width:100%;height:100%;}
+.dz-icon-int{font-size:28px;margin-bottom:4px;pointer-events:none;}
+.dz-title-int{font-size:12.5px;font-weight:600;color:var(--navy);font-family:var(--fh);margin-bottom:2px;pointer-events:none;}
+.dz-hint-int{font-size:10px;color:var(--text3);pointer-events:none;}
+.att-list-int{margin-bottom:8px;}
 #fi{display:none}
 
 /* ── FIELD MAPPING ── */
@@ -182,7 +186,7 @@ body{font-family:var(--f);background:var(--bg);color:var(--text);font-size:13px;
     <div class="ht">Rellena Formularios</div>
     <div class="hs" id="hSub">Conectando a SharePoint...</div>
   </div>
-  <div class="ver">v3.8</div>
+  <div class="ver">v3.9</div>
 </div>
 
 <!-- STEPS -->
@@ -211,25 +215,22 @@ body{font-family:var(--f);background:var(--bg);color:var(--text);font-size:13px;
 
     <div class="stitle-block mt12"><span>Documento a rellenar</span></div>
 
-    <!-- Botón cargar desde el correo (solo si hay adjuntos) -->
-    <button class="btn btn-gold btn-w" id="btnMail" onclick="loadFromOutlook()" style="display:none;margin-bottom:6px;font-weight:600;padding:10px;font-size:12.5px;">⬇ Cargar adjuntos del correo</button>
+    <!-- Botón cargar desde el correo (oculto por defecto, igual que Firma Digital) -->
+    <button class="btn btn-gold btn-w" id="btnMail" onclick="loadFromOutlook()" style="display:none;margin-bottom:8px;font-weight:600;padding:10px;font-size:12.5px;">⬇ Cargar adjuntos del correo</button>
 
-    <!-- Botón cargar manualmente (siempre visible) -->
-    <button class="btn btn-w" onclick="document.getElementById('fi').click()" style="background:var(--bg2);border:2px dashed var(--border2);color:var(--navy);font-weight:600;padding:10px;font-size:12.5px;margin-bottom:8px;" onmouseover="this.style.borderColor='var(--gold)';this.style.background='var(--gold2)'" onmouseout="this.style.borderColor='var(--border2)';this.style.background='var(--bg2)'">📁 Subir archivo desde el PC</button>
-
-    <!-- Lista de adjuntos elegibles cuando hay varios -->
     <div id="attL" style="display:none;"></div>
 
-    <!-- Drop zone (también visible para drag&drop) -->
-    <div class="upzone" id="uz" onclick="document.getElementById('fi').click()"
-         ondragover="event.preventDefault();this.classList.add('drag')"
-         ondragleave="this.classList.remove('drag')"
-         ondrop="hDrop(event)">
-      <span class="upzone-icon">📎</span>
-      <strong>O arrastra y suelta aquí</strong>
-      <p>DOCX · XLSX · PDF</p>
+    <!-- Drop zone con onclick (igual que Firma Digital) -->
+    <div class="upzone" id="dropZone"
+         onclick="document.getElementById('fi').click()"
+         ondragover="event.preventDefault();this.classList.add('drag');"
+         ondragleave="this.classList.remove('drag');"
+         ondrop="event.preventDefault();this.classList.remove('drag');hDrop(event);">
+      <span class="upzone-icon">📂</span>
+      <strong>Arrastra o haz clic para subir</strong>
+      <p>DOCX · XLSX · PDF · desde equipo o adjunto</p>
     </div>
-    <input type="file" id="fi" accept=".docx,.xlsx,.pdf,.doc" onchange="hUp(this)">
+    <input type="file" id="fi" accept=".docx,.xlsx,.pdf,.doc" onchange="hUp(this)" style="display:none;">
 
     <div id="sfInfo" style="display:none;margin-top:10px;">
       <div class="card card-accent" style="display:flex;align-items:center;gap:10px;">
