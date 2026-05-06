@@ -182,7 +182,7 @@ body{font-family:var(--f);background:var(--bg);color:var(--text);font-size:13px;
     <div class="ht">Rellena Formularios</div>
     <div class="hs" id="hSub">Conectando a SharePoint...</div>
   </div>
-  <div class="ver">v3.5</div>
+  <div class="ver">v3.8</div>
 </div>
 
 <!-- STEPS -->
@@ -206,31 +206,28 @@ body{font-family:var(--f);background:var(--bg);color:var(--text);font-size:13px;
     <button class="btn btn-login" id="btnLogin" onclick="doLogin()" style="display:none;">Iniciar sesión con Microsoft 365</button>
     <button class="btn btn-g btn-w" id="btnOut" onclick="doLogout()" style="display:none;font-size:11px;margin-bottom:10px;">Cerrar sesión</button>
 
-    <div style="margin-top:10px;margin-bottom:4px;display:flex;align-items:center;justify-content:space-between;">
-      <span style="font-size:10px;color:var(--text3);">Clave API Anthropic</span>
-      <button onclick="document.getElementById('akWrap').style.display=document.getElementById('akWrap').style.display==='none'?'flex':'none'" style="font-size:10px;background:none;border:none;color:var(--gold);cursor:pointer;padding:0;">⚙ configurar</button>
-    </div>
-    <div id="akWrap" class="akrow" style="display:none;">
-      <input type="password" id="ak" placeholder="sk-ant-api03-..." oninput="saveAk(this.value)">
-      <button class="btn btn-g" onclick="togAk()" style="padding:7px 10px;font-size:11px;">ver</button>
-    </div>
+    <!-- Clave API se lee desde SharePoint, oculta -->
+    <input type="hidden" id="ak">
 
     <div class="stitle-block mt12"><span>Documento a rellenar</span></div>
 
-    <!-- Botón de adjuntos del correo (igual que Firma Digital) -->
-    <button class="btn btn-gold btn-w" id="btnMail" onclick="loadFromOutlook()" style="display:none;margin-bottom:8px;font-weight:600;padding:10px;font-size:12.5px;">⬇ Cargar adjuntos del correo</button>
+    <!-- Botón cargar desde el correo (solo si hay adjuntos) -->
+    <button class="btn btn-gold btn-w" id="btnMail" onclick="loadFromOutlook()" style="display:none;margin-bottom:6px;font-weight:600;padding:10px;font-size:12.5px;">⬇ Cargar adjuntos del correo</button>
+
+    <!-- Botón cargar manualmente (siempre visible) -->
+    <button class="btn btn-w" onclick="document.getElementById('fi').click()" style="background:var(--bg2);border:2px dashed var(--border2);color:var(--navy);font-weight:600;padding:10px;font-size:12.5px;margin-bottom:8px;" onmouseover="this.style.borderColor='var(--gold)';this.style.background='var(--gold2)'" onmouseout="this.style.borderColor='var(--border2)';this.style.background='var(--bg2)'">📁 Subir archivo desde el PC</button>
 
     <!-- Lista de adjuntos elegibles cuando hay varios -->
     <div id="attL" style="display:none;"></div>
 
-    <!-- Drop zone manual (siempre visible, igual que Firma Digital) -->
+    <!-- Drop zone (también visible para drag&drop) -->
     <div class="upzone" id="uz" onclick="document.getElementById('fi').click()"
          ondragover="event.preventDefault();this.classList.add('drag')"
          ondragleave="this.classList.remove('drag')"
          ondrop="hDrop(event)">
-      <span class="upzone-icon">📂</span>
-      <strong>Arrastra o haz clic para subir</strong>
-      <p>DOCX · XLSX · PDF · desde el equipo</p>
+      <span class="upzone-icon">📎</span>
+      <strong>O arrastra y suelta aquí</strong>
+      <p>DOCX · XLSX · PDF</p>
     </div>
     <input type="file" id="fi" accept=".docx,.xlsx,.pdf,.doc" onchange="hUp(this)">
 
@@ -579,29 +576,109 @@ function reset(){
 }
 
 // ── ANALYZE ──
-async function analyze(){
-  // Verificar clave API antes de empezar
-  const ak = getAk();
-  if(!ak || !ak.startsWith('sk-ant-')){
-    document.getElementById('akWrap').style.display = 'flex';
-    document.getElementById('ak').focus();
-    toast('Configura tu clave API Anthropic primero');
-    setStep(1);
-    return;
+// ── KEYWORD MATCHING — sin IA, sin coste ──
+const KEYWORDS = {
+  razon_social: ['razón social','razon social','nombre de la empresa','nombre empresa','denominación social','denominacion social','razón o nombre social','company name','razón/denominación','denominación o razón social'],
+  cif: ['cif','c.i.f','c.i.f.','c.i.f','nif','n.i.f','n.i.f.','número identificación fiscal','nº identificación fiscal','tax id','tax number','código identificación fiscal','vat number','identificación fiscal'],
+  domicilio: ['domicilio social','domicilio fiscal','domicilio','dirección','direccion','dirección social','address','domicilio postal','dirección completa','calle','sede social','dirección postal'],
+  cp: ['c.p.','cp','código postal','codigo postal','postal code','zip code','zip'],
+  poblacion: ['población','poblacion','localidad','ciudad','city','town'],
+  provincia: ['provincia','province','state'],
+  pais: ['país','pais','country','nación','nacion'],
+  telefono: ['teléfono','telefono','tel.','tel:','tlf','tlfn','phone','número de teléfono','tel principal','teléfono principal'],
+  fax: ['fax','número de fax'],
+  email: ['email','e-mail','correo electrónico','correo electronico','correo','correo-e','dirección electrónica'],
+  web: ['web','página web','pagina web','sitio web','website','url','www'],
+  iban: ['iban','número de cuenta','numero de cuenta','cuenta bancaria','account number','cuenta corriente','cc','cccc','c.c.c.','número iban'],
+  banco: ['banco','entidad bancaria','bank','entidad financiera','nombre del banco'],
+  swift: ['swift','bic','código swift','codigo swift','código bic'],
+  representante_legal: ['representante legal','apoderado','firmante','firmante autorizado','legal representative','representante','administrador','responsable legal','persona de contacto'],
+  dni_representante: ['dni del representante','dni representante','dni','d.n.i.','documento identidad','documento de identidad','dni/nie'],
+  cargo: ['cargo','puesto','position','title','función'],
+  cnae: ['cnae','código cnae','codigo cnae','actividad económica','actividad economica','iae'],
+  registro_mercantil: ['registro mercantil','reg. mercantil','registro merc.','tomo','folio','hoja','inscripción registral','inscripción mercantil'],
+  fecha_constitucion: ['fecha constitución','fecha constitucion','fecha de constitución','fecha de constitucion','constitución','año de constitución'],
+  notario: ['notario','notaría','escritura','protocolo'],
+  poliza_rc: ['póliza rc','poliza rc','seguro responsabilidad civil','responsabilidad civil','póliza','poliza','número póliza'],
+  rea: ['rea','registro empresas acreditadas','reg. empresas acreditadas'],
+  seguridad_social: ['seguridad social','número ss','nº seg. social','ccc','código cuenta cotización'],
+  carnet_instalador: ['carnet instalador','carnet de instalador','registro industrial','autorización industrial','número instalador'],
+  contacto_admin_nombre: ['persona de contacto','contacto administración','responsable administración','nombre contacto'],
+  contacto_admin_email: ['email administración','correo administración','contacto email','email contacto']
+};
+
+function _normalize(s){
+  return (s||'').toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g,'')  // quitar acentos
+    .replace(/[\s\-_]+/g,' ').trim();
+}
+
+function _findField(line){
+  const norm = _normalize(line);
+  // Buscar la mejor coincidencia
+  let best = null;
+  let bestLen = 0;
+  for(const [key, patterns] of Object.entries(KEYWORDS)){
+    for(const p of patterns){
+      const np = _normalize(p);
+      if(norm.includes(np) && np.length > bestLen){
+        best = key;
+        bestLen = np.length;
+      }
+    }
   }
-  document.getElementById('anlz').style.display='block';document.getElementById('fmap').style.display='none';setSt('Analizando...');
+  return best;
+}
+
+function localAnalyze(text){
+  // Dividir en líneas por: saltos de línea, dobles puntos, separadores tabulares
+  const lines = text.split(/[\n\r]+|(?<=:)\s+|\t+/).map(l=>l.trim()).filter(l=>l.length>2 && l.length<200);
+  const found = new Map(); // key -> {label, valor}
+
+  for(const line of lines){
+    const key = _findField(line);
+    if(!key) continue;
+    if(found.has(key)) continue;  // evitar duplicados
+    const valor = DATOS[key];
+    if(!valor) continue;  // sin valor en SharePoint, saltar
+    found.set(key, {
+      field: key,
+      label: line.replace(/[:\.\s]+$/,'').substring(0,80),
+      original: '',
+      valor: valor,
+      clave_dato: key
+    });
+  }
+  return Array.from(found.values());
+}
+
+async function analyze(){
+  document.getElementById('anlz').style.display='block';
+  document.getElementById('fmap').style.display='none';
+  setSt('Analizando documento...');
   try{
-    const txt=await exTxt(ST.file.buf,ST.file.type);
-    document.getElementById('anlzStep').textContent='Enviando a Claude...';
-    const fields=await callClaude(txt);
-    ST.fields=fields;renderFields(fields);
-    document.getElementById('anlz').style.display='none';document.getElementById('fmap').style.display='block';
-    document.getElementById('fcnt').textContent=fields.length+' campos';
-    document.getElementById('btnNx').disabled=false;setSt(fields.length+' campos · revisa y continúa');
+    document.getElementById('anlzStep').textContent='Extrayendo texto del documento...';
+    const txt = await exTxt(ST.file.buf, ST.file.type);
+    document.getElementById('anlzStep').textContent='Detectando campos por palabras clave...';
+    await sl(300);  // pequeña pausa para ver el progreso
+    const fields = localAnalyze(txt);
+    ST.fields = fields;
+    renderFields(fields);
+    document.getElementById('anlz').style.display='none';
+    document.getElementById('fmap').style.display='block';
+    document.getElementById('fcnt').textContent = fields.length+' campos detectados';
+    document.getElementById('btnNx').disabled = false;
+    if(fields.length === 0){
+      setSt('Sin campos reconocidos · puedes añadirlos manualmente');
+    } else {
+      setSt(fields.length+' campos · revisa y continúa');
+    }
   }catch(e){
     document.getElementById('anlz').style.display='none';
-    document.getElementById('fmap').innerHTML=`<div class="card" style="border-color:rgba(248,113,113,.3);"><div style="color:var(--rd);font-size:12px;font-weight:500;margin-bottom:4px;">Error</div><div style="font-size:11px;color:var(--t2);">${e.message}</div></div>`;
-    document.getElementById('fmap').style.display='block';document.getElementById('btnNx').disabled=false;setSt('Error: '+e.message);
+    document.getElementById('fmap').innerHTML=`<div class="card" style="border-color:rgba(214,48,49,.3);"><div style="color:var(--red);font-size:12px;font-weight:600;margin-bottom:4px;">Error</div><div style="font-size:11px;color:var(--text2);">${e.message}</div></div>`;
+    document.getElementById('fmap').style.display='block';
+    document.getElementById('btnNx').disabled=false;
+    setSt('Error: '+e.message);
   }
 }
 async function exTxt(buf,type){
@@ -610,14 +687,7 @@ async function exTxt(buf,type){
   if(type==='xlsx'){const wb=XLSX.read(buf,{type:'array'});let t='';wb.SheetNames.forEach(n=>{t+=XLSX.utils.sheet_to_csv(wb.Sheets[n])+'\n';});return t.substring(0,8000);}
   return '[FORMULARIO PDF]';
 }
-async function callClaude(txt){
-  const sys=`Analiza formularios empresariales españoles. Dado un formulario y datos de empresa, identifica TODOS los campos vacíos/placeholder y asigna el dato correcto. Responde SOLO JSON sin markdown: {"campos":[{"id":"c_N","label":"nombre campo","original":"placeholder/contexto","valor":"valor a rellenar","clave_dato":"clave usada"}]}`;
-  const usr=`Datos empresa:\n${JSON.stringify(DATOS,null,2)}\n\nFormulario:\n${txt}`;
-  const r=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json','x-api-key':getAk(),'anthropic-version':'2023-06-01'},body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:2000,system:sys,messages:[{role:'user',content:usr}]})});
-  if(!r.ok){const e=await r.json();throw new Error(e.error?.message||'API '+r.status);}
-  const d=await r.json();
-  return JSON.parse(d.content[0].text.trim().replace(/```json|```/g,'').trim()).campos||[];
-}
+// callClaude eliminado — usamos localAnalyze sin coste
 function renderFields(fields){
   const l=document.getElementById('flist');
   if(!fields.length){l.innerHTML='<div style="font-size:11px;color:var(--t3);padding:8px 0;">Sin campos detectados.</div>';document.getElementById('btnNx').disabled=false;return;}
@@ -715,7 +785,14 @@ function dlOrig(){
 
 // ── API KEY ──
 function saveAk(v){if(v)localStorage.setItem('int_ak',v);}
-function getAk(){return document.getElementById('ak').value||localStorage.getItem('int_ak')||'';}
+function getAk(){
+  // 1) Prioridad: clave desde SharePoint (DATOS_FORMULARIOS)
+  if(DATOS && DATOS.clave_api_anthropic && DATOS.clave_api_anthropic.startsWith('sk-ant-')){
+    return DATOS.clave_api_anthropic;
+  }
+  // 2) Fallback: localStorage (configuración manual previa)
+  return localStorage.getItem('int_ak') || '';
+}
 function togAk(){const i=document.getElementById('ak'),b=i.nextElementSibling;if(i.type==='password'){i.type='text';b.textContent='ocultar';}else{i.type='password';b.textContent='ver';}}
 
 // ── UTILS ──
