@@ -186,7 +186,7 @@ body{font-family:var(--f);background:var(--bg);color:var(--text);font-size:13px;
     <div class="ht">Rellena Formularios</div>
     <div class="hs" id="hSub">Conectando a SharePoint...</div>
   </div>
-  <div class="ver">v4.3</div>
+  <div class="ver">v4.4</div>
 </div>
 
 <!-- STEPS -->
@@ -313,7 +313,7 @@ let ST={step:1,file:null,fields:[],buf:null,html:'',type:''};
 const CFG_AUTH = {
   clientId: 'a58742ce-60cc-4ea1-a9b1-2ea6dd751df1',
   tenantId: '3ac63ba7-4f34-41f6-85a0-7fb5b9be2bdb',
-  scopes:   ['https://graph.microsoft.com/Files.Read.All'],
+  scopes:   ['https://graph.microsoft.com/Files.ReadWrite','https://graph.microsoft.com/Files.Read.All'],
   resource: 'api://3ac63ba7-4f34-41f6-85a0-7fb5b9be2bdb/a58742ce-60cc-4ea1-a9b1-2ea6dd751df1'
 };
 let msal_ = null;
@@ -772,40 +772,43 @@ async function exTxt(buf,type){
   return '';
 }
 async function callClaude(txt){
-  // Filtrar DATOS para enviar solo lo útil (sin la propia clave API)
+  // Filtrar DATOS para enviar solo lo útil
   const empresaInfo = {};
   Object.keys(DATOS).forEach(k => {
     if(k !== 'clave_api_anthropic' && DATOS[k]) empresaInfo[k] = DATOS[k];
   });
 
+  // Contar placeholders "Haga clic aquí" en el texto
+  const placeholderCount = (txt.match(/Haga clic aqu[íi] para escribir texto/g) || []).length;
+
   const sys = [
     'Eres un experto en rellenar formularios empresariales españoles.',
-    'Recibirás datos de la empresa INTELEC S.L. y el texto extraído de un formulario en blanco.',
+    'Recibirás:',
+    '- Datos de la empresa INTELEC S.L.',
+    '- Texto extraído de un formulario en blanco',
+    '- Número exacto de placeholders "Haga clic aquí" detectados',
     '',
-    'Tu tarea: identificar TODOS los campos del formulario que pidan información de la empresa y devolver qué dato se debe poner.',
+    'TAREA: identifica QUÉ DATO va en cada placeholder, EN ORDEN DE APARICIÓN en el texto.',
+    'El número de campos en tu respuesta debe coincidir con el número de placeholders.',
     '',
-    'Responde SOLO con JSON válido, sin texto antes ni después, sin bloques markdown. Formato exacto:',
+    'Responde SOLO con JSON válido sin markdown:',
     '{',
     '  "campos": [',
-    '    {',
-    '      "label": "nombre del campo en el formulario",',
-    '      "buscar": "texto a buscar en el documento (placeholder o etiqueta)",',
-    '      "valor": "valor exacto a escribir",',
-    '      "clave_dato": "clave del campo en empresaInfo"',
-    '    }',
+    '    {"label":"qué campo es", "valor":"valor a poner", "clave_dato":"clave de empresaInfo"}',
     '  ]',
     '}',
     '',
-    'Reglas:',
-    '- Solo incluye campos donde tengas un valor en empresaInfo',
-    '- En "buscar" pon el placeholder literal: ____ , [_____] , o "Haga clic aquí" si lo ves',
-    '- Detecta TODO: razón social, CIF, domicilio, CP, ciudad, provincia, teléfono, email, IBAN, banco, representante legal, DNI, etc.',
-    '- Sé exhaustivo, no omitas campos'
+    'IMPORTANTE:',
+    '- Devuelve los campos EN EL MISMO ORDEN en que aparecen en el formulario',
+    '- Si hay 7 placeholders "Haga clic aquí", devuelve EXACTAMENTE 7 campos',
+    '- Si un placeholder no tiene un dato claro asociado, igualmente inclúyelo con valor vacío ""',
+    '- Lee el contexto antes/después de cada placeholder para saber qué pide'
   ].join('\n');
 
-  const usr = 'DATOS DE EMPRESA INTELEC S.L.:\n' + JSON.stringify(empresaInfo, null, 2) +
-              '\n\nFORMULARIO A RELLENAR:\n' + txt +
-              '\n\nDevuelve el JSON con los campos a rellenar.';
+  const usr = 'DATOS DE EMPRESA:\n' + JSON.stringify(empresaInfo, null, 2) +
+              '\n\nNÚMERO DE PLACEHOLDERS DETECTADOS: ' + placeholderCount +
+              '\n\nTEXTO DEL FORMULARIO:\n' + txt +
+              '\n\nDevuelve los ' + placeholderCount + ' campos en orden.';
 
   const r = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
@@ -836,17 +839,17 @@ async function callClaude(txt){
   try{
     parsed = JSON.parse(raw);
   }catch(err){
-    throw new Error('Respuesta de Claude no es JSON: '+raw.substring(0,200));
+    throw new Error('Respuesta no JSON: '+raw.substring(0,200));
   }
 
   const campos = parsed.campos || parsed.fields || [];
   return campos.map(c => ({
     field: c.clave_dato || c.label,
     label: c.label || c.clave_dato || 'Campo',
-    original: c.buscar || c.original || '',
+    original: c.buscar || '',
     valor: c.valor || c.value || '',
     clave_dato: c.clave_dato || ''
-  })).filter(c => c.valor);
+  }));
 }
 function renderFields(fields){
   const l=document.getElementById('flist');
@@ -889,28 +892,29 @@ async function fillDocx(buf,fields){
   const zz = await z.loadAsync(u8);
   let x = await zz.file('word/document.xml').async('string');
 
-  setPg(40,'Aplicando campos...');
-  let replaced = 0;
-  const valores = fields.filter(f => f.valor && !f.skip).map(f => f.valor);
-  let pIdx = 0;
+  setPg(40,'Detectando placeholders...');
 
-  // ESTRATEGIA 1: Buscar <w:t>Haga clic aquí para escribir texto.</w:t> dentro del XML
-  // Esto cubre los Content Controls de Word con placeholder estándar
-  const placeholderRe = /<w:t([^>]*)>([^<]*?Haga clic[^<]*?escribir[^<]*?)<\/w:t>/gi;
-  x = x.replace(placeholderRe, (match, attrs, content) => {
-    if(pIdx >= valores.length) return match;
-    const valor = eX(valores[pIdx++]);
+  // Lista de valores en orden (Claude los devuelve en orden de aparición)
+  const valores = fields.filter(f => f.valor && !f.skip).map(f => f.valor);
+  let replaced = 0;
+  let idx = 0;
+
+  // ESTRATEGIA 1: Reemplazar <w:r>...Haga clic aquí para escribir texto....</w:r>
+  // Esto cubre TODO el run con su rStyle de placeholder
+  const re1 = /<w:r\b[^>]*>(?:(?!<w:r\b)[\s\S])*?Haga clic aqu[íi] para escribir texto\.(?:(?!<\/w:r>)[\s\S])*?<\/w:r>/g;
+  x = x.replace(re1, () => {
+    if(idx >= valores.length) return '<w:r><w:t xml:space="preserve"></w:t></w:r>';
+    const valor = eX(valores[idx++]);
     replaced++;
-    // Mantener atributos como xml:space="preserve"
-    const attrsClean = attrs.includes('xml:space') ? attrs : attrs + ' xml:space="preserve"';
-    return '<w:t' + attrsClean + '>' + valor + '</w:t>';
+    return '<w:r><w:t xml:space="preserve">' + valor + '</w:t></w:r>';
   });
 
-  // ESTRATEGIA 2: Texto literal de "buscar" devuelto por Claude
+  // ESTRATEGIA 2: Para los campos que devolvió Claude con texto literal específico
+  // (no "Haga clic"), buscar e reemplazar
   for(const f of fields){
     if(!f.valor || f.skip) continue;
     if(!f.original || f.original.length < 4) continue;
-    if(/haga clic.*escribir/i.test(f.original)) continue; // ya cubierto arriba
+    if(/haga clic.*escribir/i.test(f.original)) continue;
     const placeholder = eX(f.original);
     if(x.includes(placeholder)){
       x = x.replace(placeholder, eX(f.valor));
@@ -918,21 +922,10 @@ async function fillDocx(buf,fields){
     }
   }
 
-  // ESTRATEGIA 3: Guiones bajos largos
-  for(const f of fields){
-    if(!f.valor || f.skip) continue;
-    if(replaced >= valores.length) break;
-    const m = x.match(/_{4,}/);
-    if(m){
-      x = x.replace(/_{4,}/, eX(f.valor));
-      replaced++;
-    }
-  }
-
   setPg(80,'Empaquetando...');
   zz.file('word/document.xml', x);
   const out = await zz.generateAsync({type:'arraybuffer', compression:'DEFLATE'});
-  setPg(95,'Listo · '+replaced+'/'+valores.length+' rellenados');
+  setPg(95, 'Listo · '+replaced+' campos rellenados');
   return out;
 }
 async function fillXlsx(buf,fields){
@@ -1031,7 +1024,7 @@ async function dlPDF(){
     _download(pdfBuf, baseName+'.pdf', 'application/pdf');
     setSt('PDF descargado · '+baseName+'.pdf');
   }catch(e){
-    toast('Error PDF: '+e.message+' — descargando original');
+    toast('Error conversión PDF: '+e.message+' — descargando original'); console.warn('PDF conversion failed:', e);
     setSt('Error conversión: '+e.message);
     // Fallback: descargar el original
     dlOrig();
