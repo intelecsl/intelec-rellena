@@ -182,7 +182,7 @@ body{font-family:var(--f);background:var(--bg);color:var(--text);font-size:13px;
     <div class="ht">Rellena Formularios</div>
     <div class="hs" id="hSub">Conectando a SharePoint...</div>
   </div>
-  <div class="ver">v3.3</div>
+  <div class="ver">v3.5</div>
 </div>
 
 <!-- STEPS -->
@@ -215,17 +215,22 @@ body{font-family:var(--f);background:var(--bg);color:var(--text);font-size:13px;
       <button class="btn btn-g" onclick="togAk()" style="padding:7px 10px;font-size:11px;">ver</button>
     </div>
 
-    <div class="stitle-block mt12"><span id="attT">Adjuntos del email</span></div>
-    <div id="attL"><div style="font-size:11px;color:var(--text3);">Cargando...</div></div>
+    <div class="stitle-block mt12"><span>Documento a rellenar</span></div>
 
-    <div class="stitle-block mt12"><span>O sube un archivo</span></div>
+    <!-- Botón de adjuntos del correo (igual que Firma Digital) -->
+    <button class="btn btn-gold btn-w" id="btnMail" onclick="loadFromOutlook()" style="display:none;margin-bottom:8px;font-weight:600;padding:10px;font-size:12.5px;">⬇ Cargar adjuntos del correo</button>
+
+    <!-- Lista de adjuntos elegibles cuando hay varios -->
+    <div id="attL" style="display:none;"></div>
+
+    <!-- Drop zone manual (siempre visible, igual que Firma Digital) -->
     <div class="upzone" id="uz" onclick="document.getElementById('fi').click()"
          ondragover="event.preventDefault();this.classList.add('drag')"
          ondragleave="this.classList.remove('drag')"
          ondrop="hDrop(event)">
-      <span class="upzone-icon">📎</span>
+      <span class="upzone-icon">📂</span>
       <strong>Arrastra o haz clic para subir</strong>
-      <p>DOCX · XLSX · PDF</p>
+      <p>DOCX · XLSX · PDF · desde el equipo</p>
     </div>
     <input type="file" id="fi" accept=".docx,.xlsx,.pdf,.doc" onchange="hUp(this)">
 
@@ -416,11 +421,19 @@ function initOffice(){
   Office.onReady(info => {
     offR = true;
     if(info.host === Office.HostType.Outlook){
-      loadAtts();
+      outlookReady = true;
+      checkOutlookAttachments();
       try{
         Office.context.mailbox.addHandlerAsync(
           Office.EventType.ItemChanged,
-          () => setTimeout(loadAtts, 200)
+          () => {
+            // Resetear botón y volver a comprobar
+            const btn = document.getElementById('btnMail');
+            btn.style.display = 'none';
+            btn.disabled = false;
+            document.getElementById('attL').style.display = 'none';
+            setTimeout(checkOutlookAttachments, 200);
+          }
         );
       }catch(e){}
     }
@@ -434,35 +447,75 @@ if(typeof Office === 'undefined'){
   document.head.appendChild(s);
 } else { initOffice(); }
 
-// ── ADJUNTOS — simple, basado en Firma Digital ──
-function loadAtts(){
+// ── ADJUNTOS — patrón EXACTO de Firma Digital ──
+let outlookReady = false;
+
+function checkOutlookAttachments(){
   try{
     const item = Office.context.mailbox.item;
     const atts = (item?.attachments || []).filter(a =>
       a.name && /\.(docx|doc|xlsx|pdf)$/i.test(a.name)
     );
-    if(atts.length === 0){
-      document.getElementById('attL').innerHTML =
-        '<div style="font-size:11px;color:var(--text3);padding:6px 0;">Sin adjuntos compatibles en este correo.</div>'+
-        '<button class="btn btn-gold btn-w mt8" onclick="document.getElementById(\'fi\').click()">📎 Cargar archivo manualmente</button>'+
-        '<button class="btn btn-g btn-w mt8" style="font-size:11px;" onclick="loadAtts()">↺ Recargar</button>';
-      return;
+    if(atts.length > 0){
+      const btn = document.getElementById('btnMail');
+      btn.style.display = 'block';
+      btn.textContent = '⬇ Cargar adjuntos del correo ('+atts.length+')';
     }
-    document.getElementById('attL').innerHTML = '';
-    atts.forEach(a => {
-      const ext = a.name.split('.').pop().toLowerCase();
-      const d = document.createElement('div');
-      d.className = 'att-item';
-      d.innerHTML = `<div class="aico ${['doc','docx'].includes(ext)?'docx':ext}">${ext.toUpperCase()}</div><div class="aname">${a.name}</div><div class="asize">${a.size?fmtSz(a.size):''}</div>`;
-      d.onclick = () => selAtt(a, d);
-      document.getElementById('attL').appendChild(d);
-    });
-  } catch(e){
-    document.getElementById('attL').innerHTML =
-      '<div style="font-size:11px;color:var(--red);">Error: '+e.message+'</div>'+
-      '<button class="btn btn-gold btn-w mt8" onclick="document.getElementById(\'fi\').click()">📎 Cargar archivo manualmente</button>';
-  }
+  }catch(e){}
 }
+
+function loadFromOutlook(){
+  if(!outlookReady){ toast('Office.js no disponible'); return; }
+  const item = Office.context.mailbox.item;
+  const atts = (item?.attachments || []).filter(a =>
+    a.name && /\.(docx|doc|xlsx|pdf)$/i.test(a.name)
+  );
+  if(atts.length === 0){ toast('Sin adjuntos compatibles'); return; }
+
+  // Si solo hay uno, cargarlo directo
+  if(atts.length === 1){
+    _fetchAtt(atts[0]);
+    return;
+  }
+  // Varios: mostrar lista para elegir
+  const list = document.getElementById('attL');
+  list.style.display = 'block';
+  list.innerHTML = '<div style="font-size:10px;color:var(--text3);margin-bottom:4px;">Selecciona uno:</div>';
+  atts.forEach(a => {
+    const ext = a.name.split('.').pop().toLowerCase();
+    const d = document.createElement('div');
+    d.className = 'att-item';
+    d.innerHTML = `<div class="aico ${['doc','docx'].includes(ext)?'docx':ext}">${ext.toUpperCase()}</div><div class="aname">${a.name}</div><div class="asize">${a.size?fmtSz(a.size):''}</div>`;
+    d.onclick = () => _fetchAtt(a, d);
+    list.appendChild(d);
+  });
+}
+
+function _fetchAtt(att, el){
+  if(el){
+    document.querySelectorAll('.att-item').forEach(i=>i.classList.remove('selected'));
+    el.classList.add('selected');
+  }
+  setSt('Descargando '+att.name+'...');
+  Office.context.mailbox.item.getAttachmentContentAsync(att.id, {}, r => {
+    if(r.status !== Office.AsyncResultStatus.Succeeded){
+      toast('Error: '+r.error.message); return;
+    }
+    const bin = atob(r.value.content);
+    const buf = new Uint8Array(bin.length);
+    for(let i=0;i<bin.length;i++) buf[i] = bin.charCodeAt(i);
+    const ext = att.name.split('.').pop().toLowerCase();
+    ST.file = {name: att.name, type: ext==='doc'?'docx':ext, size: buf.byteLength, buf: buf.buffer};
+    showSF(att.name, buf.byteLength, ext);
+    chkNext();
+    setSt('Listo · '+att.name);
+  });
+}
+
+// Compatibilidad: loadAtts() ahora solo llama a checkOutlookAttachments
+function loadAtts(){ checkOutlookAttachments(); }
+
+
 
 
 function selAtt(att,el){
@@ -527,6 +580,15 @@ function reset(){
 
 // ── ANALYZE ──
 async function analyze(){
+  // Verificar clave API antes de empezar
+  const ak = getAk();
+  if(!ak || !ak.startsWith('sk-ant-')){
+    document.getElementById('akWrap').style.display = 'flex';
+    document.getElementById('ak').focus();
+    toast('Configura tu clave API Anthropic primero');
+    setStep(1);
+    return;
+  }
   document.getElementById('anlz').style.display='block';document.getElementById('fmap').style.display='none';setSt('Analizando...');
   try{
     const txt=await exTxt(ST.file.buf,ST.file.type);
