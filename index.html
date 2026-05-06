@@ -156,7 +156,7 @@ body{font-family:var(--f);background:var(--bg);color:var(--text);font-size:13px;
 .rbox .icon{font-size:28px;margin-bottom:6px}
 .rbox h3{font-family:var(--fh);font-size:14px;font-weight:700;color:var(--gold);margin-bottom:4px}
 .rbox p{font-size:11px;color:rgba(255,255,255,.65)}
-.dlrow{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px}
+.dlrow{display:grid;grid-template-columns:1fr;gap:8px;margin-top:12px}
 
 /* ── FOOTER ── */
 .ftr{background:var(--bg2);padding:10px 14px;border-top:2px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-shrink:0;gap:8px}
@@ -186,7 +186,7 @@ body{font-family:var(--f);background:var(--bg);color:var(--text);font-size:13px;
     <div class="ht">Rellena Formularios</div>
     <div class="hs" id="hSub">Conectando a SharePoint...</div>
   </div>
-  <div class="ver">v3.9</div>
+  <div class="ver">v4.0</div>
 </div>
 
 <!-- STEPS -->
@@ -274,8 +274,7 @@ body{font-family:var(--f);background:var(--bg);color:var(--text);font-size:13px;
         <h3>Documento rellenado</h3>
         <p id="rSub">Listo para descargar</p>
         <div class="dlrow">
-          <button class="btn btn-gold btn-w" onclick="dlPDF()">⬇ Descargar PDF</button>
-          <button class="btn btn-g btn-w" onclick="dlOrig()">⬇ <span id="dlLbl">DOCX</span></button>
+          <button class="btn btn-gold btn-w" onclick="dlOrig()" style="font-weight:600;">⬇ Descargar <span id="dlLbl">documento</span></button>
         </div>
       </div>
       <div class="stitle-block"><span>Vista previa</span></div>
@@ -549,7 +548,7 @@ function pFile(f){
 function showSF(n,s,ext){
   document.getElementById('sfName').textContent=n;document.getElementById('sfSz').textContent=fmtSz(s);
   const ic=document.getElementById('sfIco');ic.textContent=ext.toUpperCase();ic.className='aico '+(['doc','docx'].includes(ext)?'docx':ext);
-  document.getElementById('sfInfo').style.display='';document.getElementById('dlLbl').textContent=ext.toUpperCase();
+  document.getElementById('sfInfo').style.display='';document.getElementById('dlLbl').textContent='('+ext.toUpperCase()+' rellenado)';
 }
 
 // ── NAV ──
@@ -684,9 +683,35 @@ async function analyze(){
 }
 async function exTxt(buf,type){
   document.getElementById('anlzStep').textContent='Extrayendo texto...';
-  if(type==='docx'){const z=new JSZip();const zz=await z.loadAsync(buf);const x=await zz.file('word/document.xml').async('string');return x.replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim().substring(0,8000);}
-  if(type==='xlsx'){const wb=XLSX.read(buf,{type:'array'});let t='';wb.SheetNames.forEach(n=>{t+=XLSX.utils.sheet_to_csv(wb.Sheets[n])+'\n';});return t.substring(0,8000);}
-  return '[FORMULARIO PDF]';
+  // Convertir a Uint8Array si viene como ArrayBuffer
+  const u8 = buf instanceof ArrayBuffer ? new Uint8Array(buf) : buf;
+  if(type==='docx'||type==='doc'){
+    const z=new JSZip();
+    const zz=await z.loadAsync(u8);
+    const docXml = zz.file('word/document.xml');
+    if(!docXml) throw new Error('Documento Word inválido');
+    const x = await docXml.async('string');
+    return x.replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim().substring(0,8000);
+  }
+  if(type==='xlsx'){
+    const wb=XLSX.read(u8,{type:'array'});
+    let t='';
+    wb.SheetNames.forEach(n=>{t+=XLSX.utils.sheet_to_csv(wb.Sheets[n])+'\n';});
+    return t.substring(0,8000);
+  }
+  if(type==='pdf'){
+    // Extraer texto del PDF usando pdf-lib (limitado, pero suficiente para forms)
+    try{
+      const {PDFDocument}=PDFLib;
+      const doc=await PDFDocument.load(u8,{ignoreEncryption:true});
+      const form=doc.getForm();
+      const fieldNames=form.getFields().map(f=>f.getName());
+      return fieldNames.join('\n');
+    }catch(e){
+      return '[PDF sin formulario detectable]';
+    }
+  }
+  return '';
 }
 // callClaude eliminado — usamos localAnalyze sin coste
 function renderFields(fields){
@@ -724,7 +749,9 @@ async function fillDoc(){
   }
 }
 async function fillDocx(buf,fields){
-  setPg(20,'Abriendo DOCX...');const z=new JSZip();const zz=await z.loadAsync(buf);
+  setPg(20,'Abriendo DOCX...');
+  const u8 = buf instanceof ArrayBuffer ? new Uint8Array(buf) : buf;
+  const z=new JSZip();const zz=await z.loadAsync(u8);
   let x=await zz.file('word/document.xml').async('string');
   setPg(50,'Aplicando campos...');
   let fi=0;
@@ -735,7 +762,9 @@ async function fillDocx(buf,fields){
   setPg(95,'Listo');return out;
 }
 async function fillXlsx(buf,fields){
-  setPg(20,'Abriendo XLSX...');const wb=XLSX.read(buf,{type:'array'});
+  setPg(20,'Abriendo XLSX...');
+  const u8 = buf instanceof ArrayBuffer ? new Uint8Array(buf) : buf;
+  const wb=XLSX.read(u8,{type:'array'});
   setPg(50,'Aplicando...');
   wb.SheetNames.forEach(sn=>{const ws=wb.Sheets[sn];const rng=XLSX.utils.decode_range(ws['!ref']||'A1:A1');
     for(let r=rng.s.r;r<=rng.e.r;r++)for(let c=rng.s.c;c<=rng.e.c;c++){
@@ -746,7 +775,10 @@ async function fillXlsx(buf,fields){
   return XLSX.write(wb,{type:'arraybuffer',bookType:'xlsx'});
 }
 async function fillPdf(buf,fields){
-  setPg(20,'Abriendo PDF...');const {PDFDocument}=PDFLib;const doc=await PDFDocument.load(buf,{ignoreEncryption:true});
+  setPg(20,'Abriendo PDF...');
+  const u8 = buf instanceof ArrayBuffer ? new Uint8Array(buf) : buf;
+  const {PDFDocument}=PDFLib;
+  const doc=await PDFDocument.load(u8,{ignoreEncryption:true});
   const form=doc.getForm();setPg(50,'Rellenando...');
   form.getFields().forEach(f=>{
     const fn=f.getName().toLowerCase();
@@ -774,7 +806,25 @@ td{padding:7px 12px;border-bottom:1px solid #e5e5e5}td.l{font-size:9pt;color:#55
 }
 
 // ── DOWNLOAD ──
-function dlPDF(){const w=window.open('','_blank');w.document.write(ST.html);w.document.close();setTimeout(()=>{w.focus();w.print();},600);setSt('Impresión abierta — guarda como PDF');}
+function dlPDF(){
+  // Descarga directa del documento rellenado
+  if(!ST.buf){toast('Documento no preparado');return;}
+  const ext = ST.file.type;
+  const m = {
+    docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    pdf:  'application/pdf'
+  };
+  const base = ST.file.name.replace(/\.[^.]+$/,'');
+  const b = new Blob([ST.buf],{type:m[ext]||'application/octet-stream'});
+  const u = URL.createObjectURL(b);
+  const a = document.createElement('a');
+  a.href = u;
+  a.download = base + '_INTELEC.' + ext;
+  a.click();
+  URL.revokeObjectURL(u);
+  setSt('Descargado · '+a.download);
+}
 function dlOrig(){
   if(!ST.buf){toast('Sin documento');return;}
   const ext=ST.file.type;
