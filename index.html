@@ -186,7 +186,7 @@ body{font-family:var(--f);background:var(--bg);color:var(--text);font-size:13px;
     <div class="ht">Rellena Formularios</div>
     <div class="hs" id="hSub">Conectando a SharePoint...</div>
   </div>
-  <div class="ver">v4.4</div>
+  <div class="ver">v4.5</div>
 </div>
 
 <!-- STEPS -->
@@ -751,11 +751,22 @@ async function exTxt(buf,type){
   if(type==='xlsx'){
     const wb=XLSX.read(u8,{type:'array'});
     let t='';
-    wb.SheetNames.forEach(n=>{
-      const csv = XLSX.utils.sheet_to_csv(wb.Sheets[n], {FS:'\t', RS:'\n'});
-      t += csv + '\n';
+    wb.SheetNames.forEach(sn=>{
+      t += '[Hoja: '+sn+']\n';
+      const ws=wb.Sheets[sn];
+      const rng=XLSX.utils.decode_range(ws['!ref']||'A1:A1');
+      for(let r=rng.s.r;r<=rng.e.r;r++){
+        for(let c=rng.s.c;c<=rng.e.c;c++){
+          const addr=XLSX.utils.encode_cell({r,c});
+          const cell=ws[addr];
+          const v=cell&&cell.v!==undefined?String(cell.v).trim():'';
+          // Incluir celdas con contenido Y celdas vacías adyacentes a etiquetas (para contexto)
+          if(v) t+=addr+': '+v+'\n';
+          else t+=addr+': [VACÍO]\n';
+        }
+      }
     });
-    return t.substring(0, 12000);
+    return t.substring(0,12000);
   }
 
   if(type==='pdf'){
@@ -771,85 +782,70 @@ async function exTxt(buf,type){
   }
   return '';
 }
-async function callClaude(txt){
-  // Filtrar DATOS para enviar solo lo útil
+async function callClaude(txt, fileType='docx'){
   const empresaInfo = {};
-  Object.keys(DATOS).forEach(k => {
-    if(k !== 'clave_api_anthropic' && DATOS[k]) empresaInfo[k] = DATOS[k];
+  Object.keys(DATOS).forEach(k=>{
+    if(k!=='clave_api_anthropic'&&DATOS[k]) empresaInfo[k]=DATOS[k];
   });
 
-  // Contar placeholders "Haga clic aquí" en el texto
-  const placeholderCount = (txt.match(/Haga clic aqu[íi] para escribir texto/g) || []).length;
+  const placeholderCount = (txt.match(/Haga clic aqu[íi] para escribir texto/g)||[]).length;
+
+  let instrucciones;
+  if(fileType==='xlsx'){
+    instrucciones = [
+      'El texto viene con coordenadas de celda (ej: "B3: [VACÍO]" o "A3: Razón Social").',
+      'Tu tarea: identificar qué celda vacía o de placeholder debe recibir cada dato de empresa.',
+      'Para celdas vacías [VACÍO] adyacentes a una etiqueta, la etiqueta es el contexto.',
+      'En "buscar" devuelve la COORDENADA EXACTA de la celda a rellenar (ej: "B3", "C5").',
+      'NO devuelvas la celda de la etiqueta, sino la celda donde va el VALOR.',
+      'Si hay varios datos que encajan, devuelve todos.'
+    ].join('\n');
+  } else {
+    instrucciones = [
+      'El documento tiene '+placeholderCount+' placeholders "Haga clic aquí para escribir texto."',
+      'Devuelve EXACTAMENTE '+placeholderCount+' campos, en ORDEN DE APARICIÓN.',
+      'En "buscar" pon "Haga clic aquí para escribir texto." (el placeholder literal).',
+      'Lee el contexto antes de cada placeholder para saber qué campo representa.'
+    ].join('\n');
+  }
 
   const sys = [
     'Eres un experto en rellenar formularios empresariales españoles.',
-    'Recibirás:',
-    '- Datos de la empresa INTELEC S.L.',
-    '- Texto extraído de un formulario en blanco',
-    '- Número exacto de placeholders "Haga clic aquí" detectados',
-    '',
-    'TAREA: identifica QUÉ DATO va en cada placeholder, EN ORDEN DE APARICIÓN en el texto.',
-    'El número de campos en tu respuesta debe coincidir con el número de placeholders.',
-    '',
-    'Responde SOLO con JSON válido sin markdown:',
-    '{',
-    '  "campos": [',
-    '    {"label":"qué campo es", "valor":"valor a poner", "clave_dato":"clave de empresaInfo"}',
-    '  ]',
-    '}',
-    '',
-    'IMPORTANTE:',
-    '- Devuelve los campos EN EL MISMO ORDEN en que aparecen en el formulario',
-    '- Si hay 7 placeholders "Haga clic aquí", devuelve EXACTAMENTE 7 campos',
-    '- Si un placeholder no tiene un dato claro asociado, igualmente inclúyelo con valor vacío ""',
-    '- Lee el contexto antes/después de cada placeholder para saber qué pide'
+    'Responde SOLO con JSON válido, sin texto ni markdown.',
+    'Formato: {"campos":[{"label":"nombre legible","buscar":"texto o celda a reemplazar","valor":"valor exacto","clave_dato":"clave_de_empresaInfo"}]}'
   ].join('\n');
 
-  const usr = 'DATOS DE EMPRESA:\n' + JSON.stringify(empresaInfo, null, 2) +
-              '\n\nNÚMERO DE PLACEHOLDERS DETECTADOS: ' + placeholderCount +
-              '\n\nTEXTO DEL FORMULARIO:\n' + txt +
-              '\n\nDevuelve los ' + placeholderCount + ' campos en orden.';
+  const usr = 'DATOS DE EMPRESA:\n'+JSON.stringify(empresaInfo,null,2)+
+              '\n\nINSTRUCCIONES ESPECÍFICAS:\n'+instrucciones+
+              '\n\nFORMULARIO:\n'+txt;
 
-  const r = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': getAk(),
-      'anthropic-version': '2023-06-01',
-      'anthropic-dangerous-direct-browser-access': 'true'
+  const r=await fetch('https://api.anthropic.com/v1/messages',{
+    method:'POST',
+    headers:{
+      'Content-Type':'application/json',
+      'x-api-key':getAk(),
+      'anthropic-version':'2023-06-01',
+      'anthropic-dangerous-direct-browser-access':'true'
     },
-    body: JSON.stringify({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 4000,
-      system: sys,
-      messages: [{role: 'user', content: usr}]
+    body:JSON.stringify({
+      model:'claude-haiku-4-5-20251001',
+      max_tokens:4000,
+      system:sys,
+      messages:[{role:'user',content:usr}]
     })
   });
-
-  if(!r.ok){
-    const e = await r.json().catch(()=>({}));
-    throw new Error(e.error?.message || 'API error '+r.status);
-  }
-
-  const d = await r.json();
-  let raw = d.content[0].text.trim();
-  raw = raw.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/, '').trim();
-
+  if(!r.ok){const e=await r.json().catch(()=>({}));throw new Error(e.error?.message||'API '+r.status);}
+  const d=await r.json();
+  let raw=d.content[0].text.trim().replace(/^```json\s*/i,'').replace(/^```\s*/i,'').replace(/\s*```$/,'').trim();
   let parsed;
-  try{
-    parsed = JSON.parse(raw);
-  }catch(err){
-    throw new Error('Respuesta no JSON: '+raw.substring(0,200));
-  }
-
-  const campos = parsed.campos || parsed.fields || [];
-  return campos.map(c => ({
-    field: c.clave_dato || c.label,
-    label: c.label || c.clave_dato || 'Campo',
-    original: c.buscar || '',
-    valor: c.valor || c.value || '',
-    clave_dato: c.clave_dato || ''
-  }));
+  try{parsed=JSON.parse(raw);}catch(e){throw new Error('Claude no devolvió JSON válido: '+raw.substring(0,200));}
+  return (parsed.campos||parsed.fields||[]).map(c=>({
+    field:c.clave_dato||c.label,
+    label:c.label||c.clave_dato||'Campo',
+    original:c.buscar||'',
+    valor:c.valor||c.value||'',
+    clave_dato:c.clave_dato||''
+  })).filter(c=>c.valor);
 }
 function renderFields(fields){
   const l=document.getElementById('flist');
@@ -892,54 +888,91 @@ async function fillDocx(buf,fields){
   const zz = await z.loadAsync(u8);
   let x = await zz.file('word/document.xml').async('string');
 
-  setPg(40,'Detectando placeholders...');
-
-  // Lista de valores en orden (Claude los devuelve en orden de aparición)
-  const valores = fields.filter(f => f.valor && !f.skip).map(f => f.valor);
+  setPg(40,'Rellenando placeholders...');
+  const MARKER = 'Haga clic aqu\u00ed para escribir texto.';
+  const valores = fields.filter(f=>f.valor&&!f.skip).map(f=>f.valor);
   let replaced = 0;
-  let idx = 0;
 
-  // ESTRATEGIA 1: Reemplazar <w:r>...Haga clic aquí para escribir texto....</w:r>
-  // Esto cubre TODO el run con su rStyle de placeholder
-  const re1 = /<w:r\b[^>]*>(?:(?!<w:r\b)[\s\S])*?Haga clic aqu[íi] para escribir texto\.(?:(?!<\/w:r>)[\s\S])*?<\/w:r>/g;
-  x = x.replace(re1, () => {
-    if(idx >= valores.length) return '<w:r><w:t xml:space="preserve"></w:t></w:r>';
-    const valor = eX(valores[idx++]);
+  // Por cada placeholder: buscar su <w:r> contenedor, reemplazar el run entero
+  for(let idx=0; idx<valores.length; idx++){
+    const pos = x.indexOf(MARKER);
+    if(pos < 0) break;
+    // Buscar el <w:r que CONTIENE este marcador (hacia atrás)
+    const rStart = x.lastIndexOf('<w:r', pos);
+    // Buscar el </w:r> que lo cierra (hacia adelante)
+    const rEnd = x.indexOf('</w:r>', pos) + '</w:r>'.length;
+    if(rStart < 0 || rEnd < '</w:r>'.length) break;
+    // Reemplazar TODO el <w:r>...</w:r> con texto limpio
+    const valor = eX(valores[idx]);
+    x = x.substring(0, rStart)
+        + '<w:r><w:t xml:space="preserve">' + valor + '</w:t></w:r>'
+        + x.substring(rEnd);
     replaced++;
-    return '<w:r><w:t xml:space="preserve">' + valor + '</w:t></w:r>';
-  });
-
-  // ESTRATEGIA 2: Para los campos que devolvió Claude con texto literal específico
-  // (no "Haga clic"), buscar e reemplazar
-  for(const f of fields){
-    if(!f.valor || f.skip) continue;
-    if(!f.original || f.original.length < 4) continue;
-    if(/haga clic.*escribir/i.test(f.original)) continue;
-    const placeholder = eX(f.original);
-    if(x.includes(placeholder)){
-      x = x.replace(placeholder, eX(f.valor));
-      replaced++;
-    }
   }
 
   setPg(80,'Empaquetando...');
   zz.file('word/document.xml', x);
   const out = await zz.generateAsync({type:'arraybuffer', compression:'DEFLATE'});
-  setPg(95, 'Listo · '+replaced+' campos rellenados');
+  setPg(95,'Listo \u00b7 '+replaced+'/'+valores.length+' placeholders rellenados');
   return out;
 }
 async function fillXlsx(buf,fields){
   setPg(20,'Abriendo XLSX...');
   const u8 = buf instanceof ArrayBuffer ? new Uint8Array(buf) : buf;
-  const wb=XLSX.read(u8,{type:'array'});
-  setPg(50,'Aplicando...');
-  wb.SheetNames.forEach(sn=>{const ws=wb.Sheets[sn];const rng=XLSX.utils.decode_range(ws['!ref']||'A1:A1');
-    for(let r=rng.s.r;r<=rng.e.r;r++)for(let c=rng.s.c;c<=rng.e.c;c++){
-      const a=XLSX.utils.encode_cell({r,c}),cell=ws[a];if(!cell||!cell.v)continue;const s=String(cell.v);
-      fields.forEach(f=>{if(!f.valor)return;if(f.original&&s.trim()===f.original.trim()){cell.v=f.valor;cell.w=f.valor;}});
+  const wb = XLSX.read(u8,{type:'array'});
+  setPg(50,'Aplicando valores...');
+
+  fields.filter(f=>f.valor&&!f.skip).forEach(f=>{
+    const buscar = (f.original||'').trim();
+    if(!buscar) return;
+
+    // Si buscar es una coordenada de celda (ej: "B3", "C12") → setearla directamente
+    if(/^[A-Z]{1,3}[0-9]{1,7}$/.test(buscar)){
+      // Usar la primera hoja o buscar en todas
+      const sn = wb.SheetNames[0];
+      const ws = wb.Sheets[sn];
+      ws[buscar] = {v:f.valor, t:'s', w:f.valor};
+      // Expandir el rango si la celda está fuera
+      const ref = ws['!ref']||'A1:A1';
+      const rng = XLSX.utils.decode_range(ref);
+      const cell = XLSX.utils.decode_cell(buscar);
+      if(cell.r>rng.e.r) rng.e.r=cell.r;
+      if(cell.c>rng.e.c) rng.e.c=cell.c;
+      ws['!ref'] = XLSX.utils.encode_range(rng);
+      return;
     }
+
+    // Si buscar es texto, buscar la celda con ese texto y rellenar la adyacente vacía
+    wb.SheetNames.forEach(sn=>{
+      const ws=wb.Sheets[sn];
+      const rng=XLSX.utils.decode_range(ws['!ref']||'A1:A1');
+      for(let r=rng.s.r;r<=rng.e.r;r++){
+        for(let c=rng.s.c;c<=rng.e.c;c++){
+          const addr=XLSX.utils.encode_cell({r,c});
+          const cell=ws[addr];
+          if(!cell||!cell.v) continue;
+          const cv=String(cell.v).toLowerCase().trim();
+          if(cv===buscar.toLowerCase().trim()||cv.includes(buscar.toLowerCase().substring(0,10))){
+            // Buscar celda vacía adyacente (derecha primero, luego abajo)
+            const rightAddr=XLSX.utils.encode_cell({r,c:c+1});
+            const downAddr=XLSX.utils.encode_cell({r:r+1,c});
+            const rightCell=ws[rightAddr];
+            const downCell=ws[downAddr];
+            if(!rightCell||!String(rightCell.v||'').trim()){
+              ws[rightAddr]={v:f.valor,t:'s',w:f.valor};
+            } else if(!downCell||!String(downCell.v||'').trim()){
+              ws[downAddr]={v:f.valor,t:'s',w:f.valor};
+            }
+            return;
+          }
+        }
+      }
+    });
   });
-  const wbout = XLSX.write(wb,{type:'array',bookType:'xlsx'}); return wbout instanceof Uint8Array ? wbout.buffer : wbout;
+
+  setPg(80,'Guardando...');
+  const wbout=XLSX.write(wb,{type:'array',bookType:'xlsx'});
+  return wbout instanceof Uint8Array ? wbout.buffer : wbout;
 }
 async function fillPdf(buf,fields){
   setPg(20,'Abriendo PDF...');
