@@ -186,7 +186,7 @@ body{font-family:var(--f);background:var(--bg);color:var(--text);font-size:13px;
     <div class="ht">Rellena Formularios</div>
     <div class="hs" id="hSub">Conectando a SharePoint...</div>
   </div>
-  <div class="ver">v5.0</div>
+  <div class="ver">v5.1</div>
 </div>
 
 <!-- STEPS -->
@@ -308,6 +308,8 @@ body{font-family:var(--f);background:var(--bg);color:var(--text);font-size:13px;
 <div class="toast" id="toast"></div>
 
 <script>
+// Configurar pdf.js worker
+if(typeof pdfjsLib!=='undefined') pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 const CFG={
   driveId:'b!0_eiUrX67U-XofAwHJeTqs9SWxlTMfBFiLMucSxWuHdaAgQD43CcQJQGO2DrfgAN',
   fileId:'01GTLRBE3TGRLYTNGMQBF3DD7EGVY6QE5E',
@@ -794,15 +796,42 @@ async function exTxt(buf,type){
   }
 
   if(type==='pdf'){
+    // Extraer texto con posiciones usando pdf.js
+    if(typeof pdfjsLib!=='undefined'){
+      try{
+        const loadTask=pdfjsLib.getDocument({data:u8.buffer instanceof ArrayBuffer?u8.buffer:u8});
+        const pdf=await loadTask.promise;
+        let lines=[];
+        for(let pn=1;pn<=Math.min(pdf.numPages,3);pn++){
+          const pg=await pdf.getPage(pn);
+          const vp=pg.getViewport({scale:1});
+          const tc=await pg.getTextContent();
+          // Agrupar en líneas por Y
+          const byY={};
+          tc.items.forEach(item=>{
+            if(!item.str.trim()) return;
+            const y=Math.round(vp.height-item.transform[5]);
+            const x=Math.round(item.transform[4]);
+            if(!byY[y]) byY[y]=[];
+            byY[y].push({x,str:item.str});
+          });
+          Object.keys(byY).sort((a,b)=>Number(a)-Number(b)).forEach(y=>{
+            const row=byY[y].sort((a,b)=>a.x-b.x);
+            const lineStr=row.map(r=>r.str).join(' ').trim();
+            if(lineStr) lines.push('[p'+pn+',y'+y+'] '+lineStr);
+          });
+        }
+        return lines.join('\n').substring(0,12000);
+      }catch(e){return '[PDF error: '+e.message+']';}
+    }
+    // Fallback: campos AcroForm
     try{
       const {PDFDocument}=PDFLib;
       const doc=await PDFDocument.load(u8,{ignoreEncryption:true});
       const form=doc.getForm();
-      const names = form.getFields().map(f=>f.getName());
-      return names.length > 0 ? names.join('\n') : '[PDF sin campos de formulario]';
-    }catch(e){
-      return '[PDF: '+e.message+']';
-    }
+      const names=form.getFields().map(f=>f.getName());
+      return names.length>0?names.join('\n'):'[PDF sin campos AcroForm]';
+    }catch(e){return '[PDF: '+e.message+']';}
   }
   return '';
 }
@@ -921,33 +950,37 @@ async function fillDocx(buf,fields){
   const z = new JSZip();
   const zz = await z.loadAsync(u8);
   let x = await zz.file('word/document.xml').async('string');
-
   setPg(40,'Rellenando placeholders...');
   const MARKER = 'Haga clic aqu\u00ed para escribir texto.';
   const valores = fields.filter(f=>f.valor&&!f.skip).map(f=>f.valor);
   let replaced = 0;
-
-  // Por cada placeholder: buscar su <w:r> contenedor, reemplazar el run entero
+  // Busca <w:r> o <w:r<espacio> ANTES de pos (NO <w:rPr>, <w:rStyle>, etc.)
+  function findRunStart(s, beforePos){
+    let i = beforePos;
+    while(i >= 0){
+      i = s.lastIndexOf('<w:r', i - 1);
+      if(i < 0) break;
+      const c = s[i + 4];
+      if(c === '>' || c === ' ' || c === '\n' || c === '\r') return i;
+    }
+    return -1;
+  }
   for(let idx=0; idx<valores.length; idx++){
     const pos = x.indexOf(MARKER);
     if(pos < 0) break;
-    // Buscar el <w:r que CONTIENE este marcador (hacia atrás)
-    const rStart = x.lastIndexOf('<w:r', pos);
-    // Buscar el </w:r> que lo cierra (hacia adelante)
-    const rEnd = x.indexOf('</w:r>', pos) + '</w:r>'.length;
-    if(rStart < 0 || rEnd < '</w:r>'.length) break;
-    // Reemplazar TODO el <w:r>...</w:r> con texto limpio
+    const rStart = findRunStart(x, pos);
+    const rEnd   = x.indexOf('</w:r>', pos);
+    if(rStart < 0 || rEnd < 0) break;
     const valor = eX(valores[idx]);
     x = x.substring(0, rStart)
         + '<w:r><w:t xml:space="preserve">' + valor + '</w:t></w:r>'
-        + x.substring(rEnd);
+        + x.substring(rEnd + '</w:r>'.length);
     replaced++;
   }
-
   setPg(80,'Empaquetando...');
   zz.file('word/document.xml', x);
-  const out = await zz.generateAsync({type:'arraybuffer', compression:'DEFLATE'});
-  setPg(95,'Listo \u00b7 '+replaced+'/'+valores.length+' placeholders rellenados');
+  const out = await zz.generateAsync({type:'arraybuffer',compression:'DEFLATE'});
+  setPg(95,'Listo \u00b7 '+replaced+'/'+valores.length+' rellenados');
   return out;
 }
 async function fillXlsx(buf,fields){
@@ -1009,92 +1042,117 @@ async function fillXlsx(buf,fields){
   return wbout instanceof Uint8Array ? wbout.buffer : wbout;
 }
 async function fillPdf(buf,fields){
-  setPg(20,'Abriendo PDF...');
+  setPg(10,'Abriendo PDF...');
   const u8 = buf instanceof ArrayBuffer ? new Uint8Array(buf) : buf;
-  const {PDFDocument}=PDFLib;
+  const {PDFDocument,rgb,StandardFonts}=PDFLib;
   const doc=await PDFDocument.load(u8,{ignoreEncryption:true});
-  const form=doc.getForm();setPg(50,'Rellenando...');
-  form.getFields().forEach(f=>{
-    const fn=f.getName().toLowerCase();
-    fields.forEach(fd=>{if(fn.includes(fd.label.toLowerCase().substring(0,8))||fd.label.toLowerCase().includes(fn.substring(0,8))){try{if(f.constructor.name==='PDFTextField')f.setText(fd.valor);}catch(e){}}});
-  });
-  const bytes=await doc.save();return bytes.buffer;
+  const font=await doc.embedFont(StandardFonts.Helvetica);
+  let filled=0;
+  // 1) AcroForm
+  try{
+    const form=doc.getForm();
+    const ff=form.getFields();
+    if(ff.length>0){
+      for(const f of fields){
+        if(!f.valor||f.skip) continue;
+        try{const fld=form.getTextField(f.original||f.label);if(fld){fld.setText(f.valor);filled++;}}catch(e){}
+      }
+    }
+  }catch(e){}
+  // 2) Overlay con posiciones pdf.js
+  if(filled===0){
+    const pages=doc.getPages();
+    for(const f of fields){
+      if(!f.valor||f.skip) continue;
+      const pm=(f.original||f.label||'').match(/\[p(\d+),y(\d+)\]/);
+      if(pm){
+        const pi=parseInt(pm[1])-1;
+        const ly=parseInt(pm[2]);
+        if(pi<pages.length){
+          const pg=pages[pi];
+          const {height,width}=pg.getSize();
+          const label=(f.original||f.label||'').replace(/\[p\d+,y\d+\]\s*/,'');
+          const lw=font.widthOfTextAtSize(label,10);
+          pg.drawText(f.valor,{x:Math.min(72+lw+4,width-150),y:height-ly,size:10,font,color:rgb(0,0,0)});
+          filled++;
+        }
+      }
+    }
+  }
+  // 3) Página resumen horizontal
+  if(filled===0){
+    const np=doc.addPage([841,595]);
+    let y=545;
+    np.drawText('INTELEC S.L. — Datos para formulario',{x:40,y,size:14,font,color:rgb(0.16,0.23,0.37)});
+    y-=20;np.drawRectangle({x:40,y,width:761,height:2,color:rgb(0.97,0.86,0.17)});y-=18;
+    let col=0;
+    for(const f of fields){
+      if(!f.valor||f.skip) continue;
+      const x=col===0?40:430;
+      np.drawText((f.label||f.field)+':',{x,y,size:8,font,color:rgb(0.16,0.23,0.37)});
+      np.drawText(f.valor,{x:x+2,y:y-11,size:10,font,color:rgb(0,0,0)});
+      col=col===0?1:0;
+      if(col===0) y-=28;
+      if(y<40) break;
+      filled++;
+    }
+  }
+  const out=await doc.save();
+  setPg(95,'Listo');
+  return out.buffer;
 }
 function buildHtml(fields,fname){
-  const n=DATOS.razon_social||'INTELEC, S.L.',c=DATOS.cif||'B28805398',d=DATOS.direccion_completa||'';
-  const rows=fields.map(f=>`<tr><td class="l">${eH(f.label)}</td><td class="v">${eH(f.valor)}</td></tr>`).join('');
+  const n=DATOS.razon_social||'INTELEC, S.L.';
+  const c=DATOS.cif||'B28805398';
+  const d=DATOS.direccion_completa||'C/ Amado Nervo 13-15, 28007 Madrid';
+  const rows=fields.filter(f=>!f.skip&&f.valor).map(f=>`<tr><td>${eH(f.label)}</td><td>${eH(f.valor)}</td></tr>`).join('');
   return `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><title>${eH(fname)}</title>
-<style>body{font-family:'Helvetica Neue',Arial,sans-serif;font-size:11pt;color:#111;padding:30px 40px;max-width:800px;margin:0 auto}
-.hdr{display:flex;align-items:center;gap:16px;border-bottom:2px solid #000;padding-bottom:14px;margin-bottom:20px}
-.lb{background:#293A5F;color:#fff;font-size:11px;font-weight:700;padding:8px 10px;border-radius:4px;letter-spacing:.05em}
-h1{font-size:14pt;font-weight:700;margin:0 0 2px}.sub{font-size:9pt;color:#666}
-table{width:100%;border-collapse:collapse}th{background:#293A5F;color:#fff;padding:7px 12px;font-size:9pt;text-align:left;font-weight:600}
-td{padding:7px 12px;border-bottom:1px solid #e5e5e5}td.l{font-size:9pt;color:#555;width:38%;font-weight:500}td.v{font-size:10pt;font-weight:600}
-.ft{margin-top:28px;padding-top:10px;border-top:1px solid #ddd;font-size:8pt;color:#999;display:flex;justify-content:space-between}
-@media print{@page{margin:1.5cm}}</style>
-</head><body>
-<div class="hdr"><div class="lb">INTELEC</div><div><h1>${eH(fname)}</h1><div class="sub">${eH(n)} · CIF ${eH(c)} · ${new Date().toLocaleDateString('es-ES')}</div></div></div>
-<table><tr><th>Campo</th><th>Valor rellenado</th></tr>${rows}</table>
-<div class="ft"><span>${eH(n)} · ${eH(d)}</span><span>Intelec Rellena Formularios v1.1</span></div>
+<style>@page{size:A4 landscape;margin:12mm}*{box-sizing:border-box;margin:0;padding:0}body{font-family:Calibri,Arial,sans-serif;font-size:11pt;color:#1a1a1a}
+.hdr{display:flex;align-items:center;justify-content:space-between;padding-bottom:10px;border-bottom:3px solid #293A5F;margin-bottom:16px}
+.ring{width:36px;height:36px;border-radius:50%;background:#F8DB2C;display:inline-block;vertical-align:middle;margin-right:8px}
+.logo{font-size:18pt;font-weight:700;color:#293A5F;vertical-align:middle}
+.hdr-r{text-align:right;font-size:9pt;color:#555}
+h1{font-size:12pt;color:#293A5F;margin-bottom:3px}
+table{width:100%;border-collapse:collapse;font-size:10pt}
+th{background:#293A5F;color:#fff;padding:5px 10px;text-align:left;font-size:9pt}
+tr:nth-child(even)td{background:#f6f7fb}
+td{padding:5px 10px;border-bottom:1px solid #e5e7ef;vertical-align:top}
+td:first-child{font-weight:600;color:#293A5F;width:36%}
+.ft{margin-top:12px;font-size:8pt;color:#aaa;display:flex;justify-content:space-between;border-top:1px solid #e5e7ef;padding-top:5px}
+@media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact}}</style></head>
+<body><div class="hdr"><div><span class="ring"></span><span class="logo">intelec</span></div>
+<div class="hdr-r"><strong>${eH(n)}</strong> &middot; ${eH(c)}<br>${eH(d)}</div></div>
+<h1>${eH(fname)}</h1><p style="font-size:9pt;color:#888;margin-bottom:12px">Generado ${new Date().toLocaleDateString('es-ES',{day:'2-digit',month:'long',year:'numeric'})}</p>
+<table><tr><th>Campo</th><th>Valor</th></tr>${rows}</table>
+<div class="ft"><span>${eH(n)} &middot; CIF ${eH(c)}</span><span>Rellena Formularios &middot; Intelec</span></div>
 </body></html>`;
 }
 
 // ── DOWNLOAD ──
 async function dlPDF(){
-  if(!ST.buf){ toast('Documento no preparado'); return; }
-  const ext = ST.file.type;
-  const baseName = ST.file.name.replace(/\.[^.]+$/,'') + '_INTELEC';
-
-  // Si ya es PDF, descargarlo directamente
-  if(ext === 'pdf'){
-    _download(ST.buf, baseName+'.pdf', 'application/pdf');
-    return;
-  }
-
-  // Para DOCX/XLSX: usar Microsoft Graph para convertir a PDF
-  setSt('Convirtiendo a PDF via Microsoft Graph...');
-  toast('Convirtiendo a PDF, espera...');
-
+  if(!ST.buf){toast('Documento no preparado');return;}
+  const ext=ST.file.type;
+  const base=ST.file.name.replace(/\.[^.]+$/,'')+'_INTELEC';
+  if(ext==='pdf'){_download(ST.buf,base+'.pdf','application/pdf');return;}
+  setSt('Convirtiendo a PDF...');toast('Convirtiendo...');
   try{
-    const tok = await getStoredToken();
+    const tok=await getStoredToken();
     if(!tok) throw new Error('Sin token Graph');
-
-    // 1) Subir a OneDrive temporal
-    const tempName = '_temp_intelec_'+Date.now()+'.'+ext;
-    const mime = ext==='docx'
-      ? 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-      : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
-
-    const upR = await fetch('https://graph.microsoft.com/v1.0/me/drive/root:/'+encodeURIComponent(tempName)+':/content',{
-      method:'PUT',
-      headers:{'Authorization':'Bearer '+tok,'Content-Type':mime},
-      body: ST.buf
-    });
-    if(!upR.ok) throw new Error('Subida temporal: '+upR.status);
-    const upD = await upR.json();
-    const itemId = upD.id;
-
-    // 2) Pedir el contenido como PDF
-    const pdfR = await fetch('https://graph.microsoft.com/v1.0/me/drive/items/'+itemId+'/content?format=pdf',{
-      headers:{'Authorization':'Bearer '+tok}
-    });
-    if(!pdfR.ok) throw new Error('Conversión PDF: '+pdfR.status);
-    const pdfBuf = await pdfR.arrayBuffer();
-
-    // 3) Borrar archivo temporal
-    fetch('https://graph.microsoft.com/v1.0/me/drive/items/'+itemId,{
-      method:'DELETE',
-      headers:{'Authorization':'Bearer '+tok}
-    }).catch(()=>{});
-
-    // 4) Descargar el PDF
-    _download(pdfBuf, baseName+'.pdf', 'application/pdf');
-    setSt('PDF descargado · '+baseName+'.pdf');
+    const mime=ext==='docx'?'application/vnd.openxmlformats-officedocument.wordprocessingml.document':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+    const up=await fetch('https://graph.microsoft.com/v1.0/me/drive/root:/_tmp_'+Date.now()+'.'+ext+':/content',{method:'PUT',headers:{'Authorization':'Bearer '+tok,'Content-Type':mime},body:ST.buf});
+    if(!up.ok) throw new Error('Subida: '+up.status);
+    const itm=await up.json();
+    const pdfR=await fetch('https://graph.microsoft.com/v1.0/me/drive/items/'+itm.id+'/content?format=pdf',{headers:{'Authorization':'Bearer '+tok}});
+    if(!pdfR.ok) throw new Error('Conv: '+pdfR.status);
+    const pdfBuf=await pdfR.arrayBuffer();
+    fetch('https://graph.microsoft.com/v1.0/me/drive/items/'+itm.id,{method:'DELETE',headers:{'Authorization':'Bearer '+tok}}).catch(()=>{});
+    _download(pdfBuf,base+'.pdf','application/pdf');
+    setSt('PDF descargado');
   }catch(e){
-    toast('Error conversión PDF: '+e.message+' — descargando original'); console.warn('PDF conversion failed:', e);
-    setSt('Error conversión: '+e.message);
-    // Fallback: descargar el original
-    dlOrig();
+    toast('PDF Graph falló ('+e.message+') — abriendo ventana para imprimir');
+    setSt('Usa Ctrl+P → "Guardar como PDF"');
+    const w=window.open('','_blank');
+    if(w){w.document.write(buildHtml(ST.fields.filter(f=>!f.skip&&f.valor),ST.file.name));w.document.close();setTimeout(()=>{w.focus();w.print();},600);}
   }
 }
 
