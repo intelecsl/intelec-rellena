@@ -186,7 +186,7 @@ body{font-family:var(--f);background:var(--bg);color:var(--text);font-size:13px;
     <div class="ht">Rellena Formularios</div>
     <div class="hs" id="hSub">Conectando a SharePoint...</div>
   </div>
-  <div class="ver">v4.7</div>
+  <div class="ver">v4.8</div>
 </div>
 
 <!-- STEPS -->
@@ -1123,12 +1123,17 @@ function _updateAkMode(){
 }
 function saveAk(v){if(v)localStorage.setItem('int_ak',v);}
 function getAk(){
-  // 1) Prioridad: clave desde SharePoint (DATOS_FORMULARIOS)
-  if(DATOS && DATOS.clave_api_anthropic && DATOS.clave_api_anthropic.startsWith('sk-ant-')){
-    return DATOS.clave_api_anthropic;
+  // Buscar la clave en DATOS buscando por nombre parcial (acepta variaciones como "calclave_api_anthropic")
+  if(DATOS){
+    for(const k of Object.keys(DATOS)){
+      if(k.includes('api_anthropic')||k.includes('clave_api')){
+        const v=DATOS[k];
+        if(v&&String(v).trim().startsWith('sk-ant-')) return String(v).trim();
+      }
+    }
   }
-  // 2) Fallback: localStorage (configuración manual previa)
-  return localStorage.getItem('int_ak') || '';
+  // Fallback: localStorage
+  return localStorage.getItem('int_ak')||'';
 }
 function togAk(){const i=document.getElementById('ak'),b=i.nextElementSibling;if(i.type==='password'){i.type='text';b.textContent='ocultar';}else{i.type='password';b.textContent='ver';}}
 
