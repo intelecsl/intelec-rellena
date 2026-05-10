@@ -186,7 +186,7 @@ body{font-family:var(--f);background:var(--bg);color:var(--text);font-size:13px;
     <div class="ht">Rellena Formularios</div>
     <div class="hs" id="hSub">Conectando a SharePoint...</div>
   </div>
-  <div class="ver">v4.8</div>
+  <div class="ver">v5.0</div>
 </div>
 
 <!-- STEPS -->
@@ -262,6 +262,7 @@ body{font-family:var(--f);background:var(--bg);color:var(--text);font-size:13px;
       <div id="rolOpts" style="display:flex;flex-direction:column;gap:6px;"></div>
     </div>
     <div id="fmap" style="display:none;">
+      <div id="fmapErr" style="display:none;"></div>
       <div class="fb" style="margin-bottom:10px;">
         <div class="stitle-block" style="flex:1"><span>Campos detectados</span></div>
         <span class="pill info" id="fcnt" style="margin-left:8px;">0 campos</span>
@@ -732,10 +733,12 @@ async function analyze(rolIntelec=null){
     document.getElementById('btnNx').disabled=false;
     setSt(fields.length+' campos detectados · revisa y continúa');
   }catch(e){
-    document.getElementById('anlz').style.display='none';
-    document.getElementById('fmap').innerHTML=`<div class="card" style="border-color:rgba(214,48,49,.3);"><div style="color:var(--red);font-size:12px;font-weight:600;margin-bottom:4px;">⚠ Error</div><div style="font-size:11px;color:var(--text2);">${e.message}</div></div><button class="btn btn-g btn-w mt8" style="font-size:11px;" onclick="setStep(1)">← Volver</button>`;
-    document.getElementById('fmap').style.display='block';
-    document.getElementById('btnNx').disabled=true;
+    const _anlz=document.getElementById('anlz');if(_anlz)_anlz.style.display='none';
+    const _fe=document.getElementById('fmapErr');if(_fe){_fe.style.display='block';_fe.innerHTML=`<div class="card" style="border-color:rgba(214,48,49,.3);margin-bottom:8px;"><div style="color:var(--red);font-size:12px;font-weight:600;margin-bottom:4px;">⚠ Error</div><div style="font-size:11px;color:var(--text2);">${e.message}</div></div><button class="btn btn-g btn-w mt8" style="font-size:11px;" onclick="setStep(1);document.getElementById('fmapErr').style.display='none';">← Volver</button>`;}
+    const _fl=document.getElementById('flist');if(_fl)_fl.innerHTML='';
+    const _fm=document.getElementById('fmap');if(_fm)_fm.style.display='block';
+    const _rs=document.getElementById('rolSel');if(_rs)_rs.style.display='none';
+    const _nx=document.getElementById('btnNx');if(_nx)_nx.disabled=true;
     setSt('Error: '+e.message);
   }
 }
@@ -779,8 +782,11 @@ async function exTxt(buf,type){
           const cell=ws[addr];
           const v=cell&&cell.v!==undefined?String(cell.v).trim():'';
           // Incluir celdas con contenido Y celdas vacías adyacentes a etiquetas (para contexto)
-          if(v) t+=addr+': '+v+'\n';
-          else t+=addr+': [VACÍO]\n';
+          if(v){
+            t+=addr+': '+v+'\n';
+            const na=XLSX.utils.encode_cell({r,c:c+1});
+            if(!ws[na]||!String(ws[na].v||'').trim()) t+=na+': [VACÍO]\n';
+          }
         }
       }
     });
@@ -802,57 +808,65 @@ async function exTxt(buf,type){
 }
 async function callClaude(txt, fileType='docx', rolIntelec=null){
   const empresaInfo={};
-  Object.keys(DATOS).forEach(k=>{if(k!=='clave_api_anthropic'&&DATOS[k])empresaInfo[k]=DATOS[k];});
+  Object.keys(DATOS).forEach(k=>{if(k!=='clave_api_anthropic'&&!k.includes('clave_api')&&!k.includes('api_anthropic')&&DATOS[k])empresaInfo[k]=DATOS[k];});
 
-  let sys, usr;
-
+  let userPrompt;
   if(fileType==='xlsx'){
-    sys='Eres un experto en formularios Excel. El texto incluye coordenadas de celda (ej: "B3: [VACÍO]"). Identifica qué celdas vacías deben recibir datos de empresa. En "buscar" devuelve la COORDENADA EXACTA (ej: "B3"). Responde SOLO JSON sin markdown: {"campos":[{"label":"nombre","buscar":"coordenada","valor":"valor","clave_dato":"clave"}]}';
-    usr='DATOS EMPRESA INTELEC:\n'+JSON.stringify(empresaInfo,null,2)+'\n\nFORMULARIO EXCEL:\n'+txt;
+    userPrompt=[
+      'DATOS EMPRESA INTELEC:\n'+JSON.stringify(empresaInfo,null,2),
+      '\nFORMULARIO EXCEL (coordenadas de celda):\n'+txt,
+      '\nDevuelve JSON con los campos a rellenar. Formato exacto:',
+      '{"campos":[{"label":"...","buscar":"B3","valor":"...","clave_dato":"..."}]}'
+    ].join('\n');
   } else {
     const totalMatch=txt.match(/\[TOTAL_CAMPOS:(\d+)\]/);
-    const total=totalMatch?parseInt(totalMatch[1]):'?';
+    const total=totalMatch?parseInt(totalMatch[1]):0;
     const cleanTxt=txt.replace(/\[TOTAL_CAMPOS:\d+\]\n?/,'');
-
-    const rolInstruccion = rolIntelec
-      ? 'INTELEC actúa como: '+rolIntelec+'. Rellena SOLO los [CAMPO_N] de esa parte.'
-      : '';
-
-    sys=[
-      'Eres un experto en contratos y formularios empresariales españoles.',
-      '',
-      'PASO 1 - ANÁLISIS DE PARTES:',
-      'Examina si el contrato ya tiene datos de una parte rellenados (empresa, persona, CIF, etc.).',
-      'Si UNA parte ya está rellena con datos de OTRA empresa → solo rellena los [CAMPO_N] de la otra parte (INTELEC).',
-      'Si AMBAS partes están en blanco y no sabes cuál es INTELEC → devuelve {"rol_necesario":true,"opciones":["Primera parte (contratante/cliente)","Segunda parte (contratista/proveedor de servicios)","Empresa mantenedora","Empresa mantenida","Arrendador","Arrendatario"]}',
-      '',
-      'PASO 2 - RELLENO:',
-      'Si sabes qué campos son de INTELEC, devuelve:',
-      '{"campos":[{"posicion":N,"label":"descripción","valor":"valor exacto","clave_dato":"clave"}]}',
-      '',
-      'REGLAS:',
-      '- Solo rellena campos de INTELEC, S.L. (CIF B28805398)',
-      '- NO cambies datos ya rellenados de la otra empresa',
-      '- Los campos de firma se rellenan con nombre del representante legal',
-      rolInstruccion
+    const rolCtx=rolIntelec?'\nROL DE INTELEC: '+rolIntelec:'';
+    userPrompt=[
+      'DATOS EMPRESA INTELEC S.L.:',
+      JSON.stringify(empresaInfo,null,2),
+      rolCtx,
+      '\nCONTRATO ('+total+' huecos marcados [CAMPO_N]):',
+      cleanTxt,
+      '\nINSTRUCCIONES:',
+      '- Si UNA parte ya tiene datos de OTRA empresa: rellena SOLO los [CAMPO_N] de INTELEC',
+      '- Si AMBAS partes están vacías y no sabes cuál es INTELEC: devuelve {"rol_necesario":true,"opciones":["Primera parte (contratante)","Segunda parte (contratista/proveedor)","Empresa mantenedora","Empresa mantenida"]}',
+      '- Si sabes qué campos son de INTELEC: devuelve {"campos":[{"posicion":N,"label":"...","valor":"...","clave_dato":"..."}]}',
+      '- Devuelve EXACTAMENTE '+total+' campos en orden de posición',
+      '- Solo JSON, nada más'
     ].join('\n');
-
-    usr='DATOS DE INTELEC, S.L.:\n'+JSON.stringify(empresaInfo,null,2)+
-        '\n\nCONTRATO/FORMULARIO ('+total+' campos [CAMPO_N] a identificar):\n'+cleanTxt;
   }
 
   const r=await fetch('https://api.anthropic.com/v1/messages',{
     method:'POST',
     headers:{'Content-Type':'application/json','x-api-key':getAk(),'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
-    body:JSON.stringify({model:'claude-haiku-4-5-20251001',max_tokens:4000,system:sys,messages:[{role:'user',content:usr}]})
+    body:JSON.stringify({
+      model:'claude-haiku-4-5-20251001',
+      max_tokens:6000,
+      messages:[
+        {role:'user', content:userPrompt},
+        {role:'assistant', content:'{'} // Prefill: fuerza respuesta JSON sin preámbulo
+      ]
+    })
   });
   if(!r.ok){const e=await r.json().catch(()=>({}));throw new Error(e.error?.message||'API '+r.status);}
   const d=await r.json();
-  let raw=d.content[0].text.trim().replace(/^```json\s*/i,'').replace(/^```\s*/i,'').replace(/\s*```$/,'').trim();
-  let parsed;
-  try{parsed=JSON.parse(raw);}catch(e){throw new Error('Claude no devolvió JSON: '+raw.substring(0,300));}
 
-  // Si Claude pide selección de rol → devolver señal especial
+  // El prefill ya puso "{", concatenar con la respuesta
+  let raw='{'+d.content[0].text.trim();
+  // Limpiar si hay trailing markdown
+  raw=raw.replace(/```$/,'').replace(/\s*```json\s*$/,'').trim();
+
+  let parsed;
+  try{parsed=JSON.parse(raw);}
+  catch(e){
+    // Intentar extraer JSON con regex
+    const m=raw.match(/\{[\s\S]*\}/);
+    if(m){try{parsed=JSON.parse(m[0]);}catch(e2){throw new Error('JSON inválido: '+raw.substring(0,200));}}
+    else throw new Error('Sin JSON en respuesta: '+raw.substring(0,200));
+  }
+
   if(parsed.rol_necesario) return {__rolNecesario:true, opciones:parsed.opciones||[]};
 
   const campos=parsed.campos||parsed.fields||[];
@@ -866,7 +880,9 @@ async function callClaude(txt, fileType='docx', rolIntelec=null){
   })).filter(c=>c.valor);
 }
 function renderFields(fields){
+  const _fe2=document.getElementById('fmapErr');if(_fe2)_fe2.style.display='none';
   const l=document.getElementById('flist');
+  if(!l){console.error('flist missing');return;}
   if(!fields.length){l.innerHTML='<div style="font-size:11px;color:var(--t3);padding:8px 0;">Sin campos detectados.</div>';document.getElementById('btnNx').disabled=false;return;}
   l.innerHTML='';
   fields.forEach((f,i)=>{
