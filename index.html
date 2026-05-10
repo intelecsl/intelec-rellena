@@ -186,7 +186,7 @@ body{font-family:var(--f);background:var(--bg);color:var(--text);font-size:13px;
     <div class="ht">Rellena Formularios</div>
     <div class="hs" id="hSub">Conectando a SharePoint...</div>
   </div>
-  <div class="ver">v4.5</div>
+  <div class="ver">v4.7</div>
 </div>
 
 <!-- STEPS -->
@@ -254,6 +254,12 @@ body{font-family:var(--f);background:var(--bg);color:var(--text);font-size:13px;
       <div class="spin"></div>
       <p>Analizando con IA...</p>
       <small id="anlzStep">Extrayendo contenido del documento</small>
+    </div>
+    <!-- Selector de rol cuando ambas partes están vacías -->
+    <div id="rolSel" style="display:none;" class="card card-accent">
+      <div style="font-family:var(--fh);font-size:13px;font-weight:600;color:var(--navy);margin-bottom:8px;">¿Cuál es el rol de INTELEC en este contrato?</div>
+      <div style="font-size:11px;color:var(--text2);margin-bottom:12px;" id="rolDesc">El contrato tiene partes sin identificar. Indica qué papel tiene INTELEC.</div>
+      <div id="rolOpts" style="display:flex;flex-direction:column;gap:6px;"></div>
     </div>
     <div id="fmap" style="display:none;">
       <div class="fb" style="margin-bottom:10px;">
@@ -679,48 +685,57 @@ function localAnalyze(text){
   return Array.from(found.values());
 }
 
-async function analyze(){
+async function analyze(rolIntelec=null){
   document.getElementById('anlz').style.display='block';
   document.getElementById('fmap').style.display='none';
-  setSt('Analizando documento...');
+  document.getElementById('rolSel').style.display='none';
+  setSt('Analizando con IA...');
   try{
     document.getElementById('anlzStep').textContent='Extrayendo texto del documento...';
-    const txt = await exTxt(ST.file.buf, ST.file.type);
+    const txt=await exTxt(ST.file.buf, ST.file.type);
+    if(!txt||txt.length<10) throw new Error('No se pudo extraer texto del documento');
+    const ak=getAk();
+    if(!ak||!ak.startsWith('sk-ant-')) throw new Error('Clave API Anthropic no configurada en SharePoint (clave_api_anthropic en DATOS_FORMULARIOS)');
+    document.getElementById('anlzStep').textContent='Claude analizando roles y campos...';
+    const result=await callClaude(txt, ST.file.type, rolIntelec);
 
-    // Si hay clave API en SharePoint → usar Claude (mejor detección)
-    // Si no → matching local por palabras clave (gratis)
-    const ak = getAk();
-    let fields;
-    if(ak && ak.startsWith('sk-ant-')){
-      document.getElementById('anlzStep').textContent='Analizando con Claude AI...';
-      try{
-        fields = await callClaude(txt);
-      }catch(e){
-        document.getElementById('anlzStep').textContent='IA falló, usando detección local...';
-        await sl(400);
-        fields = localAnalyze(txt);
-      }
-    } else {
-      document.getElementById('anlzStep').textContent='Detectando campos (modo local)...';
-      await sl(300);
-      fields = localAnalyze(txt);
+    // Si Claude necesita que el usuario seleccione el rol
+    if(result && result.__rolNecesario){
+      document.getElementById('anlz').style.display='none';
+      document.getElementById('rolSel').style.display='block';
+      document.getElementById('fmap').style.display='block';
+      const opts=result.opciones||['Primera parte','Segunda parte'];
+      const container=document.getElementById('rolOpts');
+      container.innerHTML='';
+      opts.forEach(op=>{
+        const btn=document.createElement('button');
+        btn.className='btn btn-g btn-w';
+        btn.style.textAlign='left';
+        btn.style.padding='10px 14px';
+        btn.style.fontSize='12px';
+        btn.innerHTML='<span style="color:var(--gold);margin-right:8px;">→</span>'+op;
+        btn.onclick=()=>{ document.getElementById('rolSel').style.display='none'; analyze(op); };
+        container.appendChild(btn);
+      });
+      setSt('Selecciona el rol de INTELEC en este contrato');
+      return;
     }
-    ST.fields = fields;
+
+    const fields=result;
+    if(!fields||fields.length===0) throw new Error('Claude no detectó campos de INTELEC en el documento');
+    ST.fields=fields;
     renderFields(fields);
     document.getElementById('anlz').style.display='none';
     document.getElementById('fmap').style.display='block';
-    document.getElementById('fcnt').textContent = fields.length+' campos detectados';
-    document.getElementById('btnNx').disabled = false;
-    if(fields.length === 0){
-      setSt('Sin campos reconocidos · puedes añadirlos manualmente');
-    } else {
-      setSt(fields.length+' campos · revisa y continúa');
-    }
+    document.getElementById('rolSel').style.display='none';
+    document.getElementById('fcnt').textContent=fields.length+' campos de INTELEC';
+    document.getElementById('btnNx').disabled=false;
+    setSt(fields.length+' campos detectados · revisa y continúa');
   }catch(e){
     document.getElementById('anlz').style.display='none';
-    document.getElementById('fmap').innerHTML=`<div class="card" style="border-color:rgba(214,48,49,.3);"><div style="color:var(--red);font-size:12px;font-weight:600;margin-bottom:4px;">Error</div><div style="font-size:11px;color:var(--text2);">${e.message}</div></div>`;
+    document.getElementById('fmap').innerHTML=`<div class="card" style="border-color:rgba(214,48,49,.3);"><div style="color:var(--red);font-size:12px;font-weight:600;margin-bottom:4px;">⚠ Error</div><div style="font-size:11px;color:var(--text2);">${e.message}</div></div><button class="btn btn-g btn-w mt8" style="font-size:11px;" onclick="setStep(1)">← Volver</button>`;
     document.getElementById('fmap').style.display='block';
-    document.getElementById('btnNx').disabled=false;
+    document.getElementById('btnNx').disabled=true;
     setSt('Error: '+e.message);
   }
 }
@@ -731,21 +746,24 @@ async function exTxt(buf,type){
   if(type==='docx'||type==='doc'){
     const z=new JSZip();
     const zz=await z.loadAsync(u8);
-    const docXml = zz.file('word/document.xml');
+    const docXml=zz.file('word/document.xml');
     if(!docXml) throw new Error('Documento Word inválido');
-    let x = await docXml.async('string');
-    // Preservar saltos de párrafo, celdas de tabla y filas como saltos de línea
-    x = x
-      .replace(/<w:br[^>]*\/?>/g, '\n')
-      .replace(/<\/w:p>/g, '\n')
-      .replace(/<\/w:tc>/g, '\t')
-      .replace(/<\/w:tr>/g, '\n')
-      .replace(/<[^>]+>/g, '')          // quitar resto de tags
-      .replace(/[ \t]+/g, ' ')          // colapsar espacios pero mantener saltos
-      .replace(/\n[ \t]+/g, '\n')      // limpiar inicio de línea
-      .replace(/\n{3,}/g, '\n\n')      // máximo doble salto
-      .trim();
-    return x.substring(0, 12000);
+    let x=await docXml.async('string');
+    // Extraer texto limpio preservando estructura
+    x=x.replace(/<w:br[^>]*\/?>/g,'\n')
+       .replace(/<\/w:p>/g,'\n')
+       .replace(/<\/w:tc>/g,'\t')
+       .replace(/<\/w:tr>/g,'\n')
+       .replace(/<[^>]+>/g,'')
+       .replace(/[ \t]+/g,' ')
+       .replace(/\n[ \t]+/g,'\n')
+       .replace(/\n{3,}/g,'\n\n')
+       .trim();
+    // Numerar cada placeholder para que Claude vea el contexto
+    let n=0;
+    const MARKER='Haga clic aquí para escribir texto.';
+    while(x.includes(MARKER)){ n++; x=x.replace(MARKER,'[CAMPO_'+n+']'); }
+    return '[TOTAL_CAMPOS:'+n+']\n'+x.substring(0,12000);
   }
 
   if(type==='xlsx'){
@@ -782,66 +800,66 @@ async function exTxt(buf,type){
   }
   return '';
 }
-async function callClaude(txt, fileType='docx'){
-  const empresaInfo = {};
-  Object.keys(DATOS).forEach(k=>{
-    if(k!=='clave_api_anthropic'&&DATOS[k]) empresaInfo[k]=DATOS[k];
-  });
+async function callClaude(txt, fileType='docx', rolIntelec=null){
+  const empresaInfo={};
+  Object.keys(DATOS).forEach(k=>{if(k!=='clave_api_anthropic'&&DATOS[k])empresaInfo[k]=DATOS[k];});
 
-  const placeholderCount = (txt.match(/Haga clic aqu[íi] para escribir texto/g)||[]).length;
+  let sys, usr;
 
-  let instrucciones;
   if(fileType==='xlsx'){
-    instrucciones = [
-      'El texto viene con coordenadas de celda (ej: "B3: [VACÍO]" o "A3: Razón Social").',
-      'Tu tarea: identificar qué celda vacía o de placeholder debe recibir cada dato de empresa.',
-      'Para celdas vacías [VACÍO] adyacentes a una etiqueta, la etiqueta es el contexto.',
-      'En "buscar" devuelve la COORDENADA EXACTA de la celda a rellenar (ej: "B3", "C5").',
-      'NO devuelvas la celda de la etiqueta, sino la celda donde va el VALOR.',
-      'Si hay varios datos que encajan, devuelve todos.'
-    ].join('\n');
+    sys='Eres un experto en formularios Excel. El texto incluye coordenadas de celda (ej: "B3: [VACÍO]"). Identifica qué celdas vacías deben recibir datos de empresa. En "buscar" devuelve la COORDENADA EXACTA (ej: "B3"). Responde SOLO JSON sin markdown: {"campos":[{"label":"nombre","buscar":"coordenada","valor":"valor","clave_dato":"clave"}]}';
+    usr='DATOS EMPRESA INTELEC:\n'+JSON.stringify(empresaInfo,null,2)+'\n\nFORMULARIO EXCEL:\n'+txt;
   } else {
-    instrucciones = [
-      'El documento tiene '+placeholderCount+' placeholders "Haga clic aquí para escribir texto."',
-      'Devuelve EXACTAMENTE '+placeholderCount+' campos, en ORDEN DE APARICIÓN.',
-      'En "buscar" pon "Haga clic aquí para escribir texto." (el placeholder literal).',
-      'Lee el contexto antes de cada placeholder para saber qué campo representa.'
+    const totalMatch=txt.match(/\[TOTAL_CAMPOS:(\d+)\]/);
+    const total=totalMatch?parseInt(totalMatch[1]):'?';
+    const cleanTxt=txt.replace(/\[TOTAL_CAMPOS:\d+\]\n?/,'');
+
+    const rolInstruccion = rolIntelec
+      ? 'INTELEC actúa como: '+rolIntelec+'. Rellena SOLO los [CAMPO_N] de esa parte.'
+      : '';
+
+    sys=[
+      'Eres un experto en contratos y formularios empresariales españoles.',
+      '',
+      'PASO 1 - ANÁLISIS DE PARTES:',
+      'Examina si el contrato ya tiene datos de una parte rellenados (empresa, persona, CIF, etc.).',
+      'Si UNA parte ya está rellena con datos de OTRA empresa → solo rellena los [CAMPO_N] de la otra parte (INTELEC).',
+      'Si AMBAS partes están en blanco y no sabes cuál es INTELEC → devuelve {"rol_necesario":true,"opciones":["Primera parte (contratante/cliente)","Segunda parte (contratista/proveedor de servicios)","Empresa mantenedora","Empresa mantenida","Arrendador","Arrendatario"]}',
+      '',
+      'PASO 2 - RELLENO:',
+      'Si sabes qué campos son de INTELEC, devuelve:',
+      '{"campos":[{"posicion":N,"label":"descripción","valor":"valor exacto","clave_dato":"clave"}]}',
+      '',
+      'REGLAS:',
+      '- Solo rellena campos de INTELEC, S.L. (CIF B28805398)',
+      '- NO cambies datos ya rellenados de la otra empresa',
+      '- Los campos de firma se rellenan con nombre del representante legal',
+      rolInstruccion
     ].join('\n');
+
+    usr='DATOS DE INTELEC, S.L.:\n'+JSON.stringify(empresaInfo,null,2)+
+        '\n\nCONTRATO/FORMULARIO ('+total+' campos [CAMPO_N] a identificar):\n'+cleanTxt;
   }
-
-  const sys = [
-    'Eres un experto en rellenar formularios empresariales españoles.',
-    'Responde SOLO con JSON válido, sin texto ni markdown.',
-    'Formato: {"campos":[{"label":"nombre legible","buscar":"texto o celda a reemplazar","valor":"valor exacto","clave_dato":"clave_de_empresaInfo"}]}'
-  ].join('\n');
-
-  const usr = 'DATOS DE EMPRESA:\n'+JSON.stringify(empresaInfo,null,2)+
-              '\n\nINSTRUCCIONES ESPECÍFICAS:\n'+instrucciones+
-              '\n\nFORMULARIO:\n'+txt;
 
   const r=await fetch('https://api.anthropic.com/v1/messages',{
     method:'POST',
-    headers:{
-      'Content-Type':'application/json',
-      'x-api-key':getAk(),
-      'anthropic-version':'2023-06-01',
-      'anthropic-dangerous-direct-browser-access':'true'
-    },
-    body:JSON.stringify({
-      model:'claude-haiku-4-5-20251001',
-      max_tokens:4000,
-      system:sys,
-      messages:[{role:'user',content:usr}]
-    })
+    headers:{'Content-Type':'application/json','x-api-key':getAk(),'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
+    body:JSON.stringify({model:'claude-haiku-4-5-20251001',max_tokens:4000,system:sys,messages:[{role:'user',content:usr}]})
   });
   if(!r.ok){const e=await r.json().catch(()=>({}));throw new Error(e.error?.message||'API '+r.status);}
   const d=await r.json();
   let raw=d.content[0].text.trim().replace(/^```json\s*/i,'').replace(/^```\s*/i,'').replace(/\s*```$/,'').trim();
   let parsed;
-  try{parsed=JSON.parse(raw);}catch(e){throw new Error('Claude no devolvió JSON válido: '+raw.substring(0,200));}
-  return (parsed.campos||parsed.fields||[]).map(c=>({
+  try{parsed=JSON.parse(raw);}catch(e){throw new Error('Claude no devolvió JSON: '+raw.substring(0,300));}
+
+  // Si Claude pide selección de rol → devolver señal especial
+  if(parsed.rol_necesario) return {__rolNecesario:true, opciones:parsed.opciones||[]};
+
+  const campos=parsed.campos||parsed.fields||[];
+  if(fileType!=='xlsx') campos.sort((a,b)=>(a.posicion||0)-(b.posicion||0));
+  return campos.map(c=>({
     field:c.clave_dato||c.label,
-    label:c.label||c.clave_dato||'Campo',
+    label:c.label||c.clave_dato||'Campo '+(c.posicion||''),
     original:c.buscar||'',
     valor:c.valor||c.value||'',
     clave_dato:c.clave_dato||''
