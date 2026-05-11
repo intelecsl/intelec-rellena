@@ -186,7 +186,7 @@ body{font-family:var(--f);background:var(--bg);color:var(--text);font-size:13px;
     <div class="ht">Rellena Formularios</div>
     <div class="hs" id="hSub">Conectando a SharePoint...</div>
   </div>
-  <div class="ver">v5.12</div>
+  <div class="ver">v5.13</div>
 </div>
 
 <!-- STEPS -->
@@ -959,56 +959,13 @@ async function fillDoc(){
   }
 }
 
-function buildZipStore(files){
-  const T=new Uint32Array(256);
-  for(let i=0;i<256;i++){let c=i;for(let j=0;j<8;j++)c=(c&1)?(0xEDB88320^(c>>>1)):(c>>>1);T[i]=c;}
-  function crc32(d){let c=0xFFFFFFFF;for(const b of d)c=(T[(c^b)&0xFF]^(c>>>8))>>>0;return(c^0xFFFFFFFF)>>>0;}
-  function w16(v){return new Uint8Array([v&255,(v>>8)&255]);}
-  function w32(v){return new Uint8Array([v&255,(v>>8)&255,(v>>16)&255,(v>>24)&255]);}
-  function cat(...a){const tot=a.reduce((s,x)=>s+x.length,0),r=new Uint8Array(tot);let p=0;for(const x of a){r.set(x,p);p+=x.length;}return r;}
-  const enc=new TextEncoder();
-  const entries=[];
-  let off=0;
-  for(const[name,data]of Object.entries(files)){
-    const fn=enc.encode(name);
-    const crc=crc32(data),sz=data.length;
-    // Local file header: sig(4)+ver(2)+flags(2)+method(2)+time(2)+date(2)+crc(4)+csz(4)+usz(4)+fnlen(2)+xlen(2) = 30 bytes
-    const lh=cat(
-      new Uint8Array([0x50,0x4B,0x03,0x04]),          // signature
-      new Uint8Array([0x14,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00]), // ver+flags+method+time+date
-      w32(crc),w32(sz),w32(sz),                        // crc,csz,usz
-      w16(fn.length),new Uint8Array([0x00,0x00]),       // fnlen,xlen
-      fn,data                                           // filename,data
-    );
-    entries.push({fn,crc,sz,off,lh});
-    off+=lh.length;
-  }
-  // Central directory: sig(4)+vermade(2)+verneed(2)+flags(2)+method(2)+time(2)+date(2)+crc(4)+csz(4)+usz(4)+fnlen(2)+xlen(2)+clen(2)+disk(2)+iattr(2)+eattr(4)+loff(4) = 46 bytes
-  const cdParts=entries.map(e=>cat(
-    new Uint8Array([0x50,0x4B,0x01,0x02]),
-    new Uint8Array([0x14,0x00,0x14,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00]),
-    w32(e.crc),w32(e.sz),w32(e.sz),
-    w16(e.fn.length),
-    new Uint8Array([0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00]),
-    w32(e.off),e.fn
-  ));
-  const cd=cat(...cdParts),n=entries.length;
-  // End of central directory: sig(4)+disk(2)+sdisk(2)+n(2)+tn(2)+cdsz(4)+cdoff(4)+clen(2) = 22 bytes
-  const eocd=cat(
-    new Uint8Array([0x50,0x4B,0x05,0x06,0x00,0x00,0x00,0x00]),
-    w16(n),w16(n),w32(cd.length),w32(off),
-    new Uint8Array([0x00,0x00])
-  );
-  return cat(...entries.map(e=>e.lh),cd,eocd).buffer;
-}
 
 async function fillDocx(buf,fields){
   setPg(20,'Abriendo DOCX...');
-  const u8 = buf instanceof ArrayBuffer ? new Uint8Array(buf) : buf;
-  // Leer con JSZip (solo para extraer archivos)
+  const u8 = buf instanceof ArrayBuffer ? new Uint8Array(buf) : new Uint8Array(buf.buffer||buf);
   const zz = await new JSZip().loadAsync(u8);
   let x = new TextDecoder('utf-8').decode(await zz.file('word/document.xml').async('uint8array'));
-  setPg(40,'Rellenando...');
+  setPg(35,'Rellenando...');
 
   const MARKER='Haga clic aqu\u00ed para escribir texto.';
   const valores=fields.filter(f=>f.valor&&f.valor.trim()&&f.valor.trim()!=='.'&&!f.skip).map(f=>f.valor);
@@ -1019,17 +976,12 @@ async function fillDocx(buf,fields){
     while(i>=0){i=s.lastIndexOf('<w:r',i-1);if(i<0)break;const c=s[i+4];if(c==='>'||c===' '||c==='\n'||c==='\r')return i;}
     return -1;
   }
-
-  // PASO 1: Haga clic en orden
   for(let idx=0;idx<valores.length;idx++){
     const pos=x.indexOf(MARKER);if(pos<0)break;
-    const rS=findRunStart(x,pos),rE=x.indexOf('</w:r>',pos);
-    if(rS<0||rE<0)break;
+    const rS=findRunStart(x,pos),rE=x.indexOf('</w:r>',pos);if(rS<0||rE<0)break;
     x=x.substring(0,rS)+'<w:r><w:t xml:space="preserve">'+eX(valores[idx])+'</w:t></w:r>'+x.substring(rE+6);
     replaced++;
   }
-
-  // PASO 2: por tag SDT
   const tagFills={
     'EMPRESA CONTRATADA':                   eX(DATOS.razon_social||''),
     'REPRESENTANTE EMPRESA CONTRATADA':     eX(DATOS.rep_nombre||DATOS.representante_legal||''),
@@ -1039,22 +991,19 @@ async function fillDocx(buf,fields){
     'PROVINCIA':                            eX(DATOS.localidad||DATOS.poblacion||''),
     'CARGO':                                eX(DATOS.rep_cargo||'Representante Legal'),
   };
-  for(const [tag,valor] of Object.entries(tagFills)){
+  for(const[tag,valor]of Object.entries(tagFills)){
     if(!valor)continue;
     const esc=tag.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
     x=x.replace(new RegExp('(<w:sdt>[\\s\\S]*?<w:tag\\s+w:val="'+esc+'"\\s*/>[\\s\\S]*?<w:sdtContent>)([\\s\\S]*?)(<\\/w:sdtContent>)','g'),
       (_,pre,_o,post)=>{replaced++;return pre+'<w:r><w:t xml:space="preserve">'+valor+'</w:t></w:r>'+post;});
   }
-
-  // PASO 3: sdtContent con solo "."
   const razon=eX(DATOS.razon_social||'');
   if(razon){
     const OP='<w:sdtContent>',CL='</w:sdtContent>';
     let res='',i=0;
     while(i<x.length){
       const ts=x.indexOf(OP,i);if(ts<0){res+=x.substring(i);break;}
-      res+=x.substring(i,ts);
-      const te=x.indexOf(CL,ts+OP.length);if(te<0){res+=x.substring(ts);break;}
+      res+=x.substring(i,ts);const te=x.indexOf(CL,ts+OP.length);if(te<0){res+=x.substring(ts);break;}
       const inner=x.substring(ts+OP.length,te);
       const txt=(inner.match(/<w:t[^>]*>([^<]+)<\/w:t>/g)||[]).map(t=>t.replace(/<[^>]+>/g,'')).join('').trim();
       if(txt==='.'){res+=OP+'<w:r><w:t xml:space="preserve">'+razon+'</w:t></w:r>'+CL;replaced++;}
@@ -1064,26 +1013,99 @@ async function fillDocx(buf,fields){
     x=res;
   }
 
-  setPg(70,'Empaquetando con fflate...');
-  // Construir ZIP con fflate (más compatible con Office que JSZip)
-  const newXmlBytes = new TextEncoder().encode(x);
-  const zipFiles = {};
-  // Orden obligatorio OOXML: [Content_Types].xml PRIMERO
-  const ORDER = ['[Content_Types].xml','_rels/.rels','word/_rels/document.xml.rels'];
-  for(const name of ORDER){
-    const f=zz.file(name);
-    if(f) zipFiles[name]=await f.async('uint8array');
-  }
-  for(const [name,file] of Object.entries(zz.files)){
-    if(file.dir||ORDER.includes(name)||name==='word/document.xml') continue;
-    zipFiles[name]=await file.async('uint8array');
-  }
-  zipFiles['word/document.xml']=newXmlBytes;
-
-  // buildZipStore — ZIP writer propio, compatible con Office
-  const zipped = buildZipStore(zipFiles);
+  setPg(70,'Empaquetando (surgical patch)...');
+  const newXml=new TextEncoder().encode(x);
+  const out=await surgicalPatch(u8,newXml);
   setPg(95,'Listo \u00b7 '+replaced+' rellenados');
-  return zipped;
+  return out;
+}
+
+// Sustituye SOLO word/document.xml en el ZIP original, preservando todo lo demás byte a byte
+async function surgicalPatch(u8,newXmlBytes){
+  const dv=new DataView(u8.buffer,u8.byteOffset,u8.byteLength);
+  const dec=new TextDecoder();
+  const r16=(o)=>dv.getUint16(o,true);
+  const r32=(o)=>dv.getUint32(o,true);
+
+  // CRC32
+  const T=new Uint32Array(256);
+  for(let i=0;i<256;i++){let c=i;for(let j=0;j<8;j++)c=(c&1)?(0xEDB88320^(c>>>1)):(c>>>1);T[i]=c;}
+  const crc32=(d)=>{let c=0xFFFFFFFF;for(const b of d)c=(T[(c^b)&255]^(c>>>8))>>>0;return(c^0xFFFFFFFF)>>>0;};
+
+  // Buscar EOCD
+  let eocd=u8.length-22;
+  while(eocd>=0&&r32(eocd)!==0x06054b50)eocd--;
+  if(eocd<0)throw new Error('EOCD no encontrado');
+  const cdCount=r16(eocd+10),cdOffset=r32(eocd+16);
+
+  // Buscar word/document.xml en el directorio central
+  let docLocal=-1,docCdPos=-1;
+  let cdp=cdOffset;
+  for(let i=0;i<cdCount;i++){
+    if(r32(cdp)!==0x02014b50)break;
+    const fl=r16(cdp+28),el=r16(cdp+30),cl=r16(cdp+32);
+    const fn=dec.decode(u8.subarray(cdp+46,cdp+46+fl));
+    if(fn==='word/document.xml'){docLocal=r32(cdp+42);docCdPos=cdp;}
+    cdp+=46+fl+el+cl;
+  }
+  if(docLocal<0)throw new Error('word/document.xml no encontrado en ZIP');
+
+  // Cabecera local
+  if(r32(docLocal)!==0x04034b50)throw new Error('Cabecera local inválida');
+  const lfl=r16(docLocal+26),lel=r16(docLocal+28);
+  const dataStart=docLocal+30+lfl+lel;
+  const oldCSize=r32(docLocal+18);
+  const newCrc=crc32(newXmlBytes);
+  const newSize=newXmlBytes.length;
+  const sizeDiff=newSize-oldCSize;
+
+  // Construir nuevo buffer
+  const part1=u8.slice(0,dataStart);       // antes del contenido de doc.xml
+  const part3=u8.slice(dataStart+oldCSize,cdOffset); // archivos tras doc.xml (antes del CD)
+  const oldCd=u8.slice(cdOffset,eocd);     // directorio central completo
+
+  // Parchar cabecera local (en part1)
+  const p1=new Uint8Array(part1);
+  const dv1=new DataView(p1.buffer);
+  dv1.setUint16(docLocal+8, 0,true);          // STORE
+  dv1.setUint32(docLocal+14,newCrc,true);     // CRC32
+  dv1.setUint32(docLocal+18,newSize,true);    // csz
+  dv1.setUint32(docLocal+22,newSize,true);    // usz
+
+  // Parchar directorio central
+  const newCd=new Uint8Array(oldCd);
+  const cdv=new DataView(newCd.buffer);
+  let p=0;
+  for(let i=0;i<cdCount;i++){
+    if(cdv.getUint32(p,true)!==0x02014b50)break;
+    const fl=cdv.getUint16(p+28,true),el=cdv.getUint16(p+30,true),cl=cdv.getUint16(p+32,true);
+    const fn=dec.decode(newCd.subarray(p+46,p+46+fl));
+    if(fn==='word/document.xml'){
+      cdv.setUint16(p+10,0,true);           // STORE
+      cdv.setUint32(p+16,newCrc,true);      // CRC32
+      cdv.setUint32(p+20,newSize,true);     // csz
+      cdv.setUint32(p+24,newSize,true);     // usz
+    }
+    const loff=cdv.getUint32(p+42,true);
+    if(loff>docLocal)cdv.setUint32(p+42,loff+sizeDiff,true);
+    p+=46+fl+el+cl;
+  }
+
+  // Parchar EOCD: solo cambia el offset del CD
+  const newEocd=new Uint8Array(22);
+  newEocd.set(u8.slice(eocd,eocd+22));
+  new DataView(newEocd.buffer).setUint32(16,cdOffset+sizeDiff,true);
+
+  // Combinar
+  const tot=p1.length+newXmlBytes.length+part3.length+newCd.length+newEocd.length;
+  const result=new Uint8Array(tot);
+  let off=0;
+  result.set(p1,off);off+=p1.length;
+  result.set(newXmlBytes,off);off+=newXmlBytes.length;
+  result.set(part3,off);off+=part3.length;
+  result.set(newCd,off);off+=newCd.length;
+  result.set(newEocd,off);
+  return result.buffer;
 }
 async function fillXlsx(buf,fields){
   setPg(20,'Abriendo XLSX...');
@@ -1233,7 +1255,9 @@ function buildDocHtml(fields,fname,isXlsx){
   // Copia solo para display — sin tocar el array de fill
   const vis=[...fields.filter(f=>!f.skip&&f.valor)];
   if(n&&!vis.some(f=>f.valor===n)) vis.unshift({label:'Nombre de la empresa',valor:n});
-  const landscape=isXlsx||vis.length>8;
+  // Landscape si Excel, muchos campos, o si algún valor es largo
+  const maxValLen=vis.reduce((m,f)=>Math.max(m,(f.valor||'').length),0);
+  const landscape=isXlsx||(vis.length>10)||(vis.length>6&&maxValLen>40);
   const pgSize=landscape?'A4 landscape':'A4 portrait';
   const rows=vis.map(f=>`<tr><td>${eH(f.label)}</td><td>${eH(f.valor)}</td></tr>`).join('');
   return `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><title>${eH(fname)}</title>
@@ -1269,43 +1293,88 @@ async function dlPDF(){
   const btn=document.getElementById('btnPdf');
   if(btn){btn.disabled=true;btn.textContent='Convirtiendo...';}
   try{
-    const tok = await getStoredToken();
-    if(!tok) throw new Error('Sin token de sesión — inicia sesión primero');
-
+    const tok=await getStoredToken();
+    if(!tok) throw new Error('Sin sesión');
     const tmp='_rellena_'+Date.now()+'.'+ext;
     const upR=await fetch('https://graph.microsoft.com/v1.0/me/drive/root:/'+encodeURIComponent(tmp)+':/content',
       {method:'PUT',headers:{'Authorization':'Bearer '+tok,'Content-Type':'application/octet-stream'},body:ST.buf});
-    if(!upR.ok){
-      const e=await upR.json().catch(()=>({}));
-      throw new Error('Subida fallida ('+upR.status+'): '+(e.error?.message||'sin detalles'));
-    }
+    if(!upR.ok) throw new Error('Subida '+upR.status);
     const itm=await upR.json();
-
     const pdfR=await fetch('https://graph.microsoft.com/v1.0/me/drive/items/'+itm.id+'/content?format=pdf',
       {headers:{'Authorization':'Bearer '+tok}});
     if(!pdfR.ok){
       fetch('https://graph.microsoft.com/v1.0/me/drive/items/'+itm.id,{method:'DELETE',headers:{'Authorization':'Bearer '+tok}}).catch(()=>{});
-      throw new Error('Conversión a PDF fallida ('+pdfR.status+')');
+      throw new Error('Conversión PDF '+pdfR.status);
     }
     const pdfBuf=await pdfR.arrayBuffer();
-    fetch('https://graph.microsoft.com/v1.0/me/drive/items/'+itm.id,
-      {method:'DELETE',headers:{'Authorization':'Bearer '+tok}}).catch(()=>{});
+    fetch('https://graph.microsoft.com/v1.0/me/drive/items/'+itm.id,{method:'DELETE',headers:{'Authorization':'Bearer '+tok}}).catch(()=>{});
     _download(pdfBuf,base+'.pdf','application/pdf');
-    setSt('PDF descargado ✓');toast('PDF listo ✓');
+    toast('PDF descargado ✓');
   }catch(err){
-    toast('PDF Graph: '+err.message);
-    setSt('Abriendo ventana para imprimir como PDF...');
-    const isXlsx=ST.file.type==='xlsx';
-    const w=window.open('','_blank','width=900,height=700');
-    if(w){
-      w.document.write(buildDocHtml(ST.fields.filter(f=>!f.skip&&f.valor),ST.file.name,isXlsx));
-      w.document.close();
-      setTimeout(()=>{w.focus();w.print();},800);
-    }
+    toast('Graph API: '+err.message+' — generando PDF desde el documento...');
+    setSt('Generando PDF del contrato...');
+    try{
+      const w=window.open('','_blank','width=900,height=700');
+      if(w){
+        const contractHtml=await docxToHtml(ST.buf,ST.file.name);
+        w.document.write(contractHtml);w.document.close();
+        setTimeout(()=>{w.focus();w.print();},800);
+        setSt('Usa Ctrl+P \u2192 "Guardar como PDF" en la ventana');
+      }
+    }catch(e2){toast('Error: '+e2.message);}
   }finally{
     if(btn){btn.disabled=false;btn.textContent='\u2193 Descargar PDF';}
   }
 }
+
+// Convierte DOCX rellenado a HTML para impresión (muestra el contrato real)
+async function docxToHtml(buf,fname){
+  const u8=buf instanceof ArrayBuffer?new Uint8Array(buf):new Uint8Array(buf.buffer||buf);
+  const zz=await new JSZip().loadAsync(u8);
+  const xml=new TextDecoder().decode(await zz.file('word/document.xml').async('uint8array'));
+  const n=DATOS.razon_social||'INTELEC, S.L.';
+  const c=DATOS.cif||'B28805398';
+  const d=DATOS.domicilio||'C/ Amado Nervo 13-15, Local';
+
+  // Extraer párrafos con su texto y estilo básico
+  let body='';
+  const paras=xml.match(/<w:p[ >][\s\S]*?<\/w:p>/g)||[];
+  for(const p of paras){
+    const styleM=p.match(/<w:pStyle w:val="([^"]+)"/);
+    const style=styleM?styleM[1]:'';
+    const texts=(p.match(/<w:t[^>]*>([^<]*)<\/w:t>/g)||[]).map(t=>t.replace(/<[^>]+>/g,''));
+    const text=texts.join('').trim();
+    if(!text)continue;
+    if(/[Hh]eading|[Tt]itle|TITULO|[Cc]abecera/.test(style)){
+      body+=`<h2>${eHtml(text)}</h2>`;
+    } else if(/[Cc]lause|[Cc]lauses|CLAUSULA|[Nn]umbered/.test(style)){
+      body+=`<h3>${eHtml(text)}</h3>`;
+    } else {
+      body+=`<p>${eHtml(text)}</p>`;
+    }
+  }
+
+  return `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><title>${eHtml(fname)}</title>
+<style>@page{size:A4 portrait;margin:25mm 20mm}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Times New Roman',Times,serif;font-size:11pt;color:#000;line-height:1.4}
+.hdr{text-align:center;border-bottom:2px solid #293A5F;padding-bottom:8px;margin-bottom:16px}
+.hdr-logo{font-size:14pt;font-weight:700;color:#293A5F}
+.hdr-info{font-size:9pt;color:#555;margin-top:3px}
+h1{font-size:12pt;font-weight:700;text-align:center;margin:12pt 0 8pt;text-transform:uppercase}
+h2{font-size:11pt;font-weight:700;text-align:center;margin:10pt 0 6pt;text-transform:uppercase}
+h3{font-size:11pt;font-weight:700;margin:8pt 0 4pt}
+p{margin:5pt 0;text-align:justify}
+@media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact}}</style>
+</head><body>
+<div class="hdr">
+  <div class="hdr-logo">intelec &nbsp;&nbsp;·&nbsp;&nbsp; ${eHtml(n)}</div>
+  <div class="hdr-info">CIF: ${eHtml(c)} &nbsp;&nbsp;·&nbsp;&nbsp; ${eHtml(d)}</div>
+</div>
+${body}
+</body></html>`;
+}
+function eHtml(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 
 function _download(buf, filename, mime){
   const b = new Blob([buf],{type:mime||'application/octet-stream'});
