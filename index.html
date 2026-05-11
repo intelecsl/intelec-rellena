@@ -186,7 +186,7 @@ body{font-family:var(--f);background:var(--bg);color:var(--text);font-size:13px;
     <div class="ht">Rellena Formularios</div>
     <div class="hs" id="hSub">Conectando a SharePoint...</div>
   </div>
-  <div class="ver">v5.3</div>
+  <div class="ver">v5.4</div>
 </div>
 
 <!-- STEPS -->
@@ -724,7 +724,7 @@ async function analyze(rolIntelec=null){
       return;
     }
 
-    const fields=result;
+    let fields=result;
     // Post-process: fix invalid values (".", "-", empty)
     const invalid = ['.','...','-','','N/A','n/a'];
     fields.forEach(f => {
