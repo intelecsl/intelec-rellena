@@ -186,7 +186,7 @@ body{font-family:var(--f);background:var(--bg);color:var(--text);font-size:13px;
     <div class="ht">Rellena Formularios</div>
     <div class="hs" id="hSub">Conectando a SharePoint...</div>
   </div>
-  <div class="ver">v5.14</div>
+  <div class="ver">v5.15</div>
 </div>
 
 <!-- STEPS -->
@@ -979,7 +979,11 @@ async function fillDocx(buf,fields){
   for(let idx=0;idx<valores.length;idx++){
     const pos=x.indexOf(MARKER);if(pos<0)break;
     const rS=findRunStart(x,pos),rE=x.indexOf('</w:r>',pos);if(rS<0||rE<0)break;
-    x=x.substring(0,rS)+'<w:r><w:t xml:space="preserve">'+eX(valores[idx])+'</w:t></w:r>'+x.substring(rE+6);
+    // Preserve <w:rPr> formatting — only replace <w:t> text inside the run
+    const runEnd=rE+'</w:r>'.length;
+    const origRun=x.substring(rS,runEnd);
+    const newRun=origRun.replace(/<w:t[^>]*>[^<]*<\/w:t>/,'<w:t xml:space="preserve">'+eX(valores[idx])+'</w:t>');
+    x=x.substring(0,rS)+newRun+x.substring(runEnd);
     replaced++;
   }
   const tagFills={
@@ -1012,7 +1016,11 @@ async function fillDocx(buf,fields){
       res+=x.substring(i,ts);const te=x.indexOf(CL,ts+OP.length);if(te<0){res+=x.substring(ts);break;}
       const inner=x.substring(ts+OP.length,te);
       const txt=(inner.match(/<w:t[^>]*>([^<]+)<\/w:t>/g)||[]).map(t=>t.replace(/<[^>]+>/g,'')).join('').trim();
-      if(txt==='.'){res+=OP+'<w:r><w:t xml:space="preserve">'+razon+'</w:t></w:r>'+CL;replaced++;}
+      if(txt==='.'){
+        // Safe: solo reemplaza <w:t> texto, preserva <w:rPr> del run original
+        const ni=inner.replace(/<w:t[^>]*>[^<]*<\/w:t>/,'<w:t xml:space="preserve">'+razon+'</w:t>');
+        res+=OP+ni+CL;replaced++;
+      }
       else res+=x.substring(ts,te+CL.length);
       i=te+CL.length;
     }
