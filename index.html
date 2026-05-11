@@ -186,7 +186,7 @@ body{font-family:var(--f);background:var(--bg);color:var(--text);font-size:13px;
     <div class="ht">Rellena Formularios</div>
     <div class="hs" id="hSub">Conectando a SharePoint...</div>
   </div>
-  <div class="ver">v5.4</div>
+  <div class="ver">v5.6</div>
 </div>
 
 <!-- STEPS -->
@@ -851,7 +851,7 @@ async function exTxt(buf,type){
 }
 async function callClaude(txt, fileType='docx', rolIntelec=null){
   const empresaInfo={};
-  Object.keys(DATOS).forEach(k=>{if(k!=='clave_api_anthropic'&&!k.includes('clave_api')&&!k.includes('api_anthropic')&&DATOS[k])empresaInfo[k]=DATOS[k];});
+  Object.keys(DATOS).forEach(k=>{const excl=['calclave_api_anthropic'];if(!excl.some(e=>k.includes(e))&&DATOS[k])empresaInfo[k]=DATOS[k];});
 
   let userPrompt;
   if(fileType==='xlsx'){
@@ -981,7 +981,7 @@ async function fillDocx(buf,fields){
     return -1;
   }
 
-  // PASO 1: fill "Haga clic" in order (Claude values)
+  // PASO 1: fill "Haga clic" in order (skip "." values)
   for(let idx = 0; idx < valores.length; idx++){
     const pos = x.indexOf(MARKER);
     if(pos < 0) break;
@@ -994,33 +994,30 @@ async function fillDocx(buf,fields){
     replaced++;
   }
 
-  // PASO 2: fill ALL SDTs by tag
+  // PASO 2: fill ALL SDTs by tag name
   const tagFills = {
     'EMPRESA CONTRATADA':                   eX(DATOS.razon_social||''),
-    'REPRESENTANTE EMPRESA CONTRATADA':     eX(DATOS.representante_legal||''),
-    'NIF REPRESENTANTE EMPRESA CONTRATADA': eX(DATOS.dni_representante||''),
+    'REPRESENTANTE EMPRESA CONTRATADA':     eX(DATOS.rep_nombre||DATOS.representante_legal||''),
+    'NIF REPRESENTANTE EMPRESA CONTRATADA': eX(DATOS.rep_dni||DATOS.dni_representante||''),
     'NIF EMPRESA CONTRATADA':               eX(DATOS.cif||''),
-    'DIRECCIÓN':                            eX(DATOS.domicilio_completo||DATOS.domicilio_social||''),
-    'PROVINCIA':                            eX(DATOS.poblacion||''),
-    'CARGO':                                eX('Representante Legal'),
+    'DIRECCIÓN':                            eX(DATOS.domicilio||DATOS.domicilio_completo||DATOS.domicilio_social||''),
+    'PROVINCIA':                            eX(DATOS.localidad||DATOS.poblacion||''),
+    'CARGO':                                eX(DATOS.rep_cargo||'Representante Legal'),
   };
   for(const [tag, valor] of Object.entries(tagFills)){
     if(!valor) continue;
     const esc = tag.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
     x = x.replace(
       new RegExp('(<w:sdt>[\\s\\S]*?<w:tag\\s+w:val="'+esc+'"\\s*/>[\\s\\S]*?<w:sdtContent>)([\\s\\S]*?)(<\\/w:sdtContent>)','g'),
-      (_m,pre,_old,post) => { replaced++; return pre+'<w:r><w:t xml:space="preserve">'+valor+'</w:t></w:r>'+post; }
+      (_m,pre,_old,post)=>{ replaced++; return pre+'<w:r><w:t xml:space="preserve">'+valor+'</w:t></w:r>'+post; }
     );
   }
 
-  // PASO 3: fill ALL sdtContent blocks where ALL text = "."
-  // (unnamed linked content controls for company name throughout document)
+  // PASO 3: fill ALL sdtContent blocks where ALL text = "." (unnamed linked controls)
   const razon = eX(DATOS.razon_social||'');
   if(razon){
-    const OPEN = '<w:sdtContent>';
-    const CLOSE = '</w:sdtContent>';
-    let result = '';
-    let i = 0;
+    const OPEN = '<w:sdtContent>', CLOSE = '</w:sdtContent>';
+    let result = '', i = 0;
     while(i < x.length){
       const ts = x.indexOf(OPEN, i);
       if(ts < 0){ result += x.substring(i); break; }
@@ -1028,10 +1025,8 @@ async function fillDocx(buf,fields){
       const te = x.indexOf(CLOSE, ts + OPEN.length);
       if(te < 0){ result += x.substring(ts); break; }
       const inner = x.substring(ts + OPEN.length, te);
-      // Extract all text from inner
       const allText = (inner.match(/<w:t[^>]*>([^<]+)<\/w:t>/g)||[])
-        .map(t=>t.replace(/<[^>]+>/g,''))
-        .join('').trim();
+        .map(t=>t.replace(/<[^>]+>/g,'')).join('').trim();
       if(allText === '.'){
         result += OPEN+'<w:r><w:t xml:space="preserve">'+razon+'</w:t></w:r>'+CLOSE;
         replaced++;
@@ -1045,8 +1040,9 @@ async function fillDocx(buf,fields){
 
   setPg(80,'Empaquetando...');
   zz.file('word/document.xml', x);
-  const out = await zz.generateAsync({type:'arraybuffer',compression:'DEFLATE'});
-  setPg(95,'Listo \u00b7 '+replaced+' rellenados');
+  // Usar STORE (sin compresión) — evita corrupción ZIP con Microsoft Word
+  const out = await zz.generateAsync({type:'arraybuffer', compression:'STORE'});
+  setPg(95,'Listo \u00b7 '+replaced+' campos rellenados');
   return out;
 }
 async function fillXlsx(buf,fields){
@@ -1055,77 +1051,80 @@ async function fillXlsx(buf,fields){
   const wb = XLSX.read(u8,{type:'array',cellText:false,cellNF:false});
   setPg(50,'Aplicando valores...');
 
+  // Claves reales del SharePoint verificadas
+  const D = DATOS;
   const DIRECT_MAP = {
-    'nombre de la empresa': DATOS.razon_social,
-    'nif/cif': DATOS.cif, 'nif': DATOS.cif, 'cif': DATOS.cif,
-    'actividad de la empresa': DATOS.actividad||DATOS.actividad_empresa||'Instalaciones eléctricas',
-    'domicilio social': DATOS.domicilio_completo||DATOS.domicilio_social,
-    'localidad': DATOS.poblacion,
-    'c.p': DATOS.cp,
-    'provincia': DATOS.provincia,
-    'código iban': DATOS.iban,
-    'código banco': DATOS.banco,
-    'cuenta sucursal': DATOS.cuenta_sucursal,
-    'cuenta corriente': DATOS.iban,
-    'teléfono': DATOS.telefono,
-    'fax': DATOS.fax||'',
-    'e-mail': DATOS.email,
-    'interlocutor': DATOS.nombre_contacto||DATOS.representante_legal,
-    'cargo': 'Representante Legal',
-    'cumplimentado por': DATOS.representante_legal,
-    'cargo / función': DATOS.actividad||'Instalaciones eléctricas',
+    'nombre de la empresa':     D.razon_social,
+    'razón social':             D.razon_social,
+    'nif/cif':                  D.cif,
+    'nif':                      D.cif,
+    'cif':                      D.cif,
+    'actividad de la empresa':  D.actividad,
+    'actividad':                D.actividad,
+    'domicilio social':         D.domicilio,
+    'domicilio':                D.domicilio,
+    'dirección':                D.domicilio,
+    'localidad':                D.localidad,
+    'municipio':                D.localidad,
+    'c.p':                      D.cp,
+    'código postal':            D.cp,
+    'provincia':                D.provincia,
+    'teléfono':                 D.telefono,
+    'fax':                      D.fax||D.telefono,
+    'e-mail':                   D.email,
+    'email':                    D.email,
+    'código iban':              D.iban,
+    'iban':                     D.iban,
+    'código banco':             D.banco,
+    'banco':                    D.banco,
+    'cuenta sucursal':          (D.sucursal||'')+(D.dc?'-'+D.dc:''),
+    'cuenta corriente':         D.iban,
+    'interlocutor':             D.rep_nombre||D.admin_nombre,
+    'cumplimentado por':        D.rep_nombre,
+    'cargo / función':          D.actividad,
+    'cargo':                    D.rep_cargo||'Representante Legal',
+    'cnae':                     D.cnae,
+    'iae':                      D.iae,
+    'n.i.f':                    D.cif,
+    'nombre empresa':           D.razon_social,
   };
 
   wb.SheetNames.forEach(sn => {
     const ws = wb.Sheets[sn];
     if(!ws['!ref']) return;
     const rng = XLSX.utils.decode_range(ws['!ref']);
-
-    // Build set of MASTER cells (top-left of each merged range)
-    const merges = ws['!merges'] || [];
-    const masterCells = new Set(merges.map(m => XLSX.utils.encode_cell(m.s)));
-    // Build slave→master mapping
-    const slaveToMaster = {};
-    merges.forEach(m => {
-      for(let r=m.s.r; r<=m.e.r; r++){
-        for(let c=m.s.c; c<=m.e.c; c++){
-          const addr = XLSX.utils.encode_cell({r,c});
-          if(r!==m.s.r||c!==m.s.c){ // skip master itself
-            slaveToMaster[addr] = XLSX.utils.encode_cell(m.s);
-          }
-        }
-      }
+    const merges = ws['!merges']||[];
+    const slaveCells = new Set();
+    merges.forEach(m=>{
+      for(let r=m.s.r;r<=m.e.r;r++) for(let c=m.s.c;c<=m.e.c;c++)
+        if(r!==m.s.r||c!==m.s.c) slaveCells.add(XLSX.utils.encode_cell({r,c}));
     });
 
-    for(let r=rng.s.r; r<=rng.e.r; r++){
-      for(let c=rng.s.c; c<=rng.e.c; c++){
-        const addr = XLSX.utils.encode_cell({r,c});
-        // Skip slave cells (they inherit master's value)
-        if(slaveToMaster[addr]) continue;
-        const cell = ws[addr];
+    for(let r=rng.s.r;r<=rng.e.r;r++){
+      for(let c=rng.s.c;c<=rng.e.c;c++){
+        const addr=XLSX.utils.encode_cell({r,c});
+        if(slaveCells.has(addr)) continue;
+        const cell=ws[addr];
         if(!cell||cell.v===undefined||cell.v===null||cell.v==='') continue;
-        const v = String(cell.v).trim();
+        const v=String(cell.v).trim();
         if(!v) continue;
-        // Normalize: lowercase, remove trailing colon/space
-        const vLow = v.toLowerCase().replace(/[:\s]+$/,'').trim();
-        let valor = DIRECT_MAP[vLow];
+        const vLow=v.toLowerCase().replace(/[:\s]+$/,'').trim();
+        let valor=DIRECT_MAP[vLow];
         if(!valor){
-          // Fuzzy: first 8 chars
           for(const [k,val] of Object.entries(DIRECT_MAP)){
-            if(val && k.length>=4 && vLow.startsWith(k.substring(0,Math.min(k.length,8)))){ valor=val; break; }
+            if(val&&k.length>=3&&vLow.startsWith(k.substring(0,Math.min(k.length,10)))){valor=val;break;}
           }
         }
         if(valor){
-          const labelClean = v.replace(/[:\s]+$/,'');
-          // Write "Label: Value" to THIS cell (which is a master cell)
-          ws[addr] = {v: labelClean+': '+valor, t:'s', w: labelClean+': '+valor};
+          const lbl=v.replace(/[:\s]+$/,'');
+          ws[addr]={v:lbl+': '+valor,t:'s',w:lbl+': '+valor};
         }
       }
     }
   });
 
-  const wbout = XLSX.write(wb,{type:'array',bookType:'xlsx'});
-  return wbout instanceof Uint8Array ? wbout.buffer : wbout;
+  const wbout=XLSX.write(wb,{type:'array',bookType:'xlsx'});
+  return wbout instanceof Uint8Array?wbout.buffer:wbout;
 }
 async function fillPdf(buf,fields){
   setPg(10,'Abriendo PDF...');
@@ -1187,7 +1186,7 @@ async function fillPdf(buf,fields){
   setPg(95,'Listo');
   return out.buffer;
 }
-function buildHtml(fields,fname){
+function buildDocHtml(fields,fname){
   const n=DATOS.razon_social||'INTELEC, S.L.';
   const c=DATOS.cif||'B28805398';
   const d=DATOS.direccion_completa||'C/ Amado Nervo 13-15, 28007 Madrid';
@@ -1216,29 +1215,78 @@ td:first-child{font-weight:600;color:#293A5F;width:36%}
 
 // ── DOWNLOAD ──
 async function dlPDF(){
-  if(!ST.buf){toast('Documento no preparado');return;}
-  const ext=ST.file.type;
-  const base=ST.file.name.replace(/\.[^.]+$/,'')+'_INTELEC';
+  if(!ST.buf){toast('Sin documento');return;}
+  const ext = ST.file.type;
+  const base = ST.file.name.replace(/\.[^.]+$/,'')+'_INTELEC';
+
+  // PDF: descargar directo
   if(ext==='pdf'){_download(ST.buf,base+'.pdf','application/pdf');return;}
-  setSt('Convirtiendo a PDF...');toast('Convirtiendo...');
+
+  // DOCX/XLSX: intentar conversión real via Graph API
+  document.getElementById('btnPdf').disabled=true;
+  document.getElementById('btnPdf').textContent='Convirtiendo...';
   try{
-    const tok=await getStoredToken();
-    if(!tok) throw new Error('Sin token Graph');
-    const mime=ext==='docx'?'application/vnd.openxmlformats-officedocument.wordprocessingml.document':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
-    const up=await fetch('https://graph.microsoft.com/v1.0/me/drive/root:/_tmp_'+Date.now()+'.'+ext+':/content',{method:'PUT',headers:{'Authorization':'Bearer '+tok,'Content-Type':mime},body:ST.buf});
-    if(!up.ok) throw new Error('Subida: '+up.status);
-    const itm=await up.json();
-    const pdfR=await fetch('https://graph.microsoft.com/v1.0/me/drive/items/'+itm.id+'/content?format=pdf',{headers:{'Authorization':'Bearer '+tok}});
-    if(!pdfR.ok) throw new Error('Conv: '+pdfR.status);
-    const pdfBuf=await pdfR.arrayBuffer();
-    fetch('https://graph.microsoft.com/v1.0/me/drive/items/'+itm.id,{method:'DELETE',headers:{'Authorization':'Bearer '+tok}}).catch(()=>{});
-    _download(pdfBuf,base+'.pdf','application/pdf');
-    setSt('PDF descargado');
-  }catch(e){
-    toast('PDF Graph falló ('+e.message+') — abriendo ventana para imprimir');
-    setSt('Usa Ctrl+P → "Guardar como PDF"');
-    const w=window.open('','_blank');
-    if(w){w.document.write(buildHtml(ST.fields.filter(f=>!f.skip&&f.valor),ST.file.name));w.document.close();setTimeout(()=>{w.focus();w.print();},600);}
+    // Solicitar token con scope Files.ReadWrite explícito
+    let tok;
+    try{
+      tok = await MSALclient.acquireTokenSilent({
+        scopes:['https://graph.microsoft.com/Files.ReadWrite'],
+        account: MSALclient.getAllAccounts()[0]
+      }).then(r=>r.accessToken);
+    }catch(e){
+      // Si falla silent, intentar popup
+      tok = await MSALclient.acquireTokenPopup({
+        scopes:['https://graph.microsoft.com/Files.ReadWrite']
+      }).then(r=>r.accessToken);
+    }
+
+    const mime = ext==='docx'
+      ? 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+      : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+    const tmpName = '_rellena_tmp_'+Date.now()+'.'+ext;
+
+    // Subir a OneDrive
+    const upResp = await fetch(
+      'https://graph.microsoft.com/v1.0/me/drive/root:/'+encodeURIComponent(tmpName)+':/content',
+      {method:'PUT',headers:{'Authorization':'Bearer '+tok,'Content-Type':mime},body:ST.buf}
+    );
+    if(!upResp.ok){
+      const err=await upResp.json().catch(()=>({}));
+      throw new Error('Subida: '+(err.error?.message||upResp.status));
+    }
+    const item = await upResp.json();
+
+    // Convertir a PDF
+    const pdfResp = await fetch(
+      'https://graph.microsoft.com/v1.0/me/drive/items/'+item.id+'/content?format=pdf',
+      {headers:{'Authorization':'Bearer '+tok}}
+    );
+    if(!pdfResp.ok) throw new Error('Conversión PDF: '+pdfResp.status);
+    const pdfBuf = await pdfResp.arrayBuffer();
+
+    // Eliminar temporal
+    fetch('https://graph.microsoft.com/v1.0/me/drive/items/'+item.id,
+      {method:'DELETE',headers:{'Authorization':'Bearer '+tok}}).catch(()=>{});
+
+    _download(pdfBuf, base+'.pdf','application/pdf');
+    setSt('PDF descargado correctamente');
+    toast('PDF generado ✓');
+
+  }catch(err){
+    // Fallback: imprimir como PDF
+    toast('Conversión Graph falló: '+err.message);
+    setSt('Abre la ventana emergente y usa Ctrl+P \u2192 "Guardar como PDF"');
+    // Abrir el DOCX rellenado en el navegador como HTML para imprimir
+    const htmlDoc = buildDocHtml(ST.fields.filter(f=>!f.skip&&f.valor), ST.file.name);
+    const w = window.open('','_blank','width=900,height=700');
+    if(w){
+      w.document.write(htmlDoc);
+      w.document.close();
+      setTimeout(()=>{w.focus();w.print();},800);
+    }
+  }finally{
+    document.getElementById('btnPdf').disabled=false;
+    document.getElementById('btnPdf').textContent='\u2193 Descargar PDF';
   }
 }
 
