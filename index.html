@@ -186,7 +186,7 @@ body{font-family:var(--f);background:var(--bg);color:var(--text);font-size:13px;
     <div class="ht">Rellena Formularios</div>
     <div class="hs" id="hSub">Conectando a SharePoint...</div>
   </div>
-  <div class="ver">v5.6</div>
+  <div class="ver">v5.7</div>
 </div>
 
 <!-- STEPS -->
@@ -946,7 +946,7 @@ async function fillDoc(){
     if(['docx','doc'].includes(ST.file.type))ST.buf=await fillDocx(ST.file.buf,active);
     else if(ST.file.type==='xlsx')ST.buf=await fillXlsx(ST.file.buf,active);
     else if(ST.file.type==='pdf')ST.buf=await fillPdf(ST.file.buf,active);
-    ST.html=buildHtml(active,ST.file.name);
+    ST.html=buildDocHtml(active,ST.file.name);
     setPg(100,'Completado');await sl(300);
     document.getElementById('fill').style.display='none';document.getElementById('dlSec').style.display='block';
     document.getElementById('rSub').textContent=active.length+' campos · '+ST.file.name;
