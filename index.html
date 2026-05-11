@@ -186,7 +186,7 @@ body{font-family:var(--f);background:var(--bg);color:var(--text);font-size:13px;
     <div class="ht">Rellena Formularios</div>
     <div class="hs" id="hSub">Conectando a SharePoint...</div>
   </div>
-  <div class="ver">v5.13</div>
+  <div class="ver">v5.14</div>
 </div>
 
 <!-- STEPS -->
@@ -995,7 +995,13 @@ async function fillDocx(buf,fields){
     if(!valor)continue;
     const esc=tag.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
     x=x.replace(new RegExp('(<w:sdt>[\\s\\S]*?<w:tag\\s+w:val="'+esc+'"\\s*/>[\\s\\S]*?<w:sdtContent>)([\\s\\S]*?)(<\\/w:sdtContent>)','g'),
-      (_,pre,_o,post)=>{replaced++;return pre+'<w:r><w:t xml:space="preserve">'+valor+'</w:t></w:r>'+post;});
+      (_,pre,oldContent,post)=>{
+        replaced++;
+        // Solo reemplazar <w:t> texto - preserva <w:p> para block SDTs (como CARGO)
+                const nc=oldContent.replace(/<w:t[^>]*>[^<]*<\/w:t>/,
+          '<w:t xml:space="preserve">'+valor+'</w:t>');
+        return pre+nc+post;
+      });
   }
   const razon=eX(DATOS.razon_social||'');
   if(razon){
