@@ -186,7 +186,7 @@ body{font-family:var(--f);background:var(--bg);color:var(--text);font-size:13px;
     <div class="ht">Rellena Formularios</div>
     <div class="hs" id="hSub">Conectando a SharePoint...</div>
   </div>
-  <div class="ver">v5.1</div>
+  <div class="ver">v5.3</div>
 </div>
 
 <!-- STEPS -->
@@ -725,6 +725,20 @@ async function analyze(rolIntelec=null){
     }
 
     const fields=result;
+    // Post-process: fix invalid values (".", "-", empty)
+    const invalid = ['.','...','-','','N/A','n/a'];
+    fields.forEach(f => {
+      if(invalid.includes((f.valor||'').trim())){
+        const lbl = (f.label||'').toLowerCase();
+        if(/mercantil|empresa|sociedad|contratad|company/i.test(lbl)) f.valor = DATOS.razon_social||'';
+        else if(/direcci|domicilio|address/i.test(lbl)) f.valor = DATOS.domicilio_completo||DATOS.domicilio_social||'';
+        else if(/provincia|localidad|ciudad|city/i.test(lbl)) f.valor = DATOS.poblacion||'';
+        else if(/cif|nif|fiscal/i.test(lbl)) f.valor = DATOS.cif||'';
+        else if(/representante|firmante/i.test(lbl)) f.valor = DATOS.representante_legal||'';
+        else f.valor = ''; // leave empty if can't infer
+      }
+    });
+    fields = fields.filter(f=>f.valor);
     if(!fields||fields.length===0) throw new Error('Claude no detectó campos de INTELEC en el documento');
     ST.fields=fields;
     renderFields(fields);
@@ -950,11 +964,12 @@ async function fillDocx(buf,fields){
   const z = new JSZip();
   const zz = await z.loadAsync(u8);
   let x = await zz.file('word/document.xml').async('string');
-  setPg(40,'Rellenando placeholders...');
+  setPg(40,'Rellenando...');
+
   const MARKER = 'Haga clic aqu\u00ed para escribir texto.';
-  const valores = fields.filter(f=>f.valor&&!f.skip).map(f=>f.valor);
+  const valores = fields.filter(f=>f.valor&&f.valor.trim()&&f.valor.trim()!=='.'&&!f.skip).map(f=>f.valor);
   let replaced = 0;
-  // Busca <w:r> o <w:r<espacio> ANTES de pos (NO <w:rPr>, <w:rStyle>, etc.)
+
   function findRunStart(s, beforePos){
     let i = beforePos;
     while(i >= 0){
@@ -965,80 +980,151 @@ async function fillDocx(buf,fields){
     }
     return -1;
   }
-  for(let idx=0; idx<valores.length; idx++){
+
+  // PASO 1: fill "Haga clic" in order (Claude values)
+  for(let idx = 0; idx < valores.length; idx++){
     const pos = x.indexOf(MARKER);
     if(pos < 0) break;
     const rStart = findRunStart(x, pos);
     const rEnd   = x.indexOf('</w:r>', pos);
     if(rStart < 0 || rEnd < 0) break;
-    const valor = eX(valores[idx]);
     x = x.substring(0, rStart)
-        + '<w:r><w:t xml:space="preserve">' + valor + '</w:t></w:r>'
+        + '<w:r><w:t xml:space="preserve">' + eX(valores[idx]) + '</w:t></w:r>'
         + x.substring(rEnd + '</w:r>'.length);
     replaced++;
   }
+
+  // PASO 2: fill ALL SDTs by tag
+  const tagFills = {
+    'EMPRESA CONTRATADA':                   eX(DATOS.razon_social||''),
+    'REPRESENTANTE EMPRESA CONTRATADA':     eX(DATOS.representante_legal||''),
+    'NIF REPRESENTANTE EMPRESA CONTRATADA': eX(DATOS.dni_representante||''),
+    'NIF EMPRESA CONTRATADA':               eX(DATOS.cif||''),
+    'DIRECCIÓN':                            eX(DATOS.domicilio_completo||DATOS.domicilio_social||''),
+    'PROVINCIA':                            eX(DATOS.poblacion||''),
+    'CARGO':                                eX('Representante Legal'),
+  };
+  for(const [tag, valor] of Object.entries(tagFills)){
+    if(!valor) continue;
+    const esc = tag.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+    x = x.replace(
+      new RegExp('(<w:sdt>[\\s\\S]*?<w:tag\\s+w:val="'+esc+'"\\s*/>[\\s\\S]*?<w:sdtContent>)([\\s\\S]*?)(<\\/w:sdtContent>)','g'),
+      (_m,pre,_old,post) => { replaced++; return pre+'<w:r><w:t xml:space="preserve">'+valor+'</w:t></w:r>'+post; }
+    );
+  }
+
+  // PASO 3: fill ALL sdtContent blocks where ALL text = "."
+  // (unnamed linked content controls for company name throughout document)
+  const razon = eX(DATOS.razon_social||'');
+  if(razon){
+    const OPEN = '<w:sdtContent>';
+    const CLOSE = '</w:sdtContent>';
+    let result = '';
+    let i = 0;
+    while(i < x.length){
+      const ts = x.indexOf(OPEN, i);
+      if(ts < 0){ result += x.substring(i); break; }
+      result += x.substring(i, ts);
+      const te = x.indexOf(CLOSE, ts + OPEN.length);
+      if(te < 0){ result += x.substring(ts); break; }
+      const inner = x.substring(ts + OPEN.length, te);
+      // Extract all text from inner
+      const allText = (inner.match(/<w:t[^>]*>([^<]+)<\/w:t>/g)||[])
+        .map(t=>t.replace(/<[^>]+>/g,''))
+        .join('').trim();
+      if(allText === '.'){
+        result += OPEN+'<w:r><w:t xml:space="preserve">'+razon+'</w:t></w:r>'+CLOSE;
+        replaced++;
+      } else {
+        result += x.substring(ts, te + CLOSE.length);
+      }
+      i = te + CLOSE.length;
+    }
+    x = result;
+  }
+
   setPg(80,'Empaquetando...');
   zz.file('word/document.xml', x);
   const out = await zz.generateAsync({type:'arraybuffer',compression:'DEFLATE'});
-  setPg(95,'Listo \u00b7 '+replaced+'/'+valores.length+' rellenados');
+  setPg(95,'Listo \u00b7 '+replaced+' rellenados');
   return out;
 }
 async function fillXlsx(buf,fields){
   setPg(20,'Abriendo XLSX...');
   const u8 = buf instanceof ArrayBuffer ? new Uint8Array(buf) : buf;
-  const wb = XLSX.read(u8,{type:'array'});
+  const wb = XLSX.read(u8,{type:'array',cellText:false,cellNF:false});
   setPg(50,'Aplicando valores...');
 
-  fields.filter(f=>f.valor&&!f.skip).forEach(f=>{
-    const buscar = (f.original||'').trim();
-    if(!buscar) return;
+  const DIRECT_MAP = {
+    'nombre de la empresa': DATOS.razon_social,
+    'nif/cif': DATOS.cif, 'nif': DATOS.cif, 'cif': DATOS.cif,
+    'actividad de la empresa': DATOS.actividad||DATOS.actividad_empresa||'Instalaciones eléctricas',
+    'domicilio social': DATOS.domicilio_completo||DATOS.domicilio_social,
+    'localidad': DATOS.poblacion,
+    'c.p': DATOS.cp,
+    'provincia': DATOS.provincia,
+    'código iban': DATOS.iban,
+    'código banco': DATOS.banco,
+    'cuenta sucursal': DATOS.cuenta_sucursal,
+    'cuenta corriente': DATOS.iban,
+    'teléfono': DATOS.telefono,
+    'fax': DATOS.fax||'',
+    'e-mail': DATOS.email,
+    'interlocutor': DATOS.nombre_contacto||DATOS.representante_legal,
+    'cargo': 'Representante Legal',
+    'cumplimentado por': DATOS.representante_legal,
+    'cargo / función': DATOS.actividad||'Instalaciones eléctricas',
+  };
 
-    // Si buscar es una coordenada de celda (ej: "B3", "C12") → setearla directamente
-    if(/^[A-Z]{1,3}[0-9]{1,7}$/.test(buscar)){
-      // Usar la primera hoja o buscar en todas
-      const sn = wb.SheetNames[0];
-      const ws = wb.Sheets[sn];
-      ws[buscar] = {v:f.valor, t:'s', w:f.valor};
-      // Expandir el rango si la celda está fuera
-      const ref = ws['!ref']||'A1:A1';
-      const rng = XLSX.utils.decode_range(ref);
-      const cell = XLSX.utils.decode_cell(buscar);
-      if(cell.r>rng.e.r) rng.e.r=cell.r;
-      if(cell.c>rng.e.c) rng.e.c=cell.c;
-      ws['!ref'] = XLSX.utils.encode_range(rng);
-      return;
-    }
+  wb.SheetNames.forEach(sn => {
+    const ws = wb.Sheets[sn];
+    if(!ws['!ref']) return;
+    const rng = XLSX.utils.decode_range(ws['!ref']);
 
-    // Si buscar es texto, buscar la celda con ese texto y rellenar la adyacente vacía
-    wb.SheetNames.forEach(sn=>{
-      const ws=wb.Sheets[sn];
-      const rng=XLSX.utils.decode_range(ws['!ref']||'A1:A1');
-      for(let r=rng.s.r;r<=rng.e.r;r++){
-        for(let c=rng.s.c;c<=rng.e.c;c++){
-          const addr=XLSX.utils.encode_cell({r,c});
-          const cell=ws[addr];
-          if(!cell||!cell.v) continue;
-          const cv=String(cell.v).toLowerCase().trim();
-          if(cv===buscar.toLowerCase().trim()||cv.includes(buscar.toLowerCase().substring(0,10))){
-            // Buscar celda vacía adyacente (derecha primero, luego abajo)
-            const rightAddr=XLSX.utils.encode_cell({r,c:c+1});
-            const downAddr=XLSX.utils.encode_cell({r:r+1,c});
-            const rightCell=ws[rightAddr];
-            const downCell=ws[downAddr];
-            if(!rightCell||!String(rightCell.v||'').trim()){
-              ws[rightAddr]={v:f.valor,t:'s',w:f.valor};
-            } else if(!downCell||!String(downCell.v||'').trim()){
-              ws[downAddr]={v:f.valor,t:'s',w:f.valor};
-            }
-            return;
+    // Build set of MASTER cells (top-left of each merged range)
+    const merges = ws['!merges'] || [];
+    const masterCells = new Set(merges.map(m => XLSX.utils.encode_cell(m.s)));
+    // Build slave→master mapping
+    const slaveToMaster = {};
+    merges.forEach(m => {
+      for(let r=m.s.r; r<=m.e.r; r++){
+        for(let c=m.s.c; c<=m.e.c; c++){
+          const addr = XLSX.utils.encode_cell({r,c});
+          if(r!==m.s.r||c!==m.s.c){ // skip master itself
+            slaveToMaster[addr] = XLSX.utils.encode_cell(m.s);
           }
         }
       }
     });
+
+    for(let r=rng.s.r; r<=rng.e.r; r++){
+      for(let c=rng.s.c; c<=rng.e.c; c++){
+        const addr = XLSX.utils.encode_cell({r,c});
+        // Skip slave cells (they inherit master's value)
+        if(slaveToMaster[addr]) continue;
+        const cell = ws[addr];
+        if(!cell||cell.v===undefined||cell.v===null||cell.v==='') continue;
+        const v = String(cell.v).trim();
+        if(!v) continue;
+        // Normalize: lowercase, remove trailing colon/space
+        const vLow = v.toLowerCase().replace(/[:\s]+$/,'').trim();
+        let valor = DIRECT_MAP[vLow];
+        if(!valor){
+          // Fuzzy: first 8 chars
+          for(const [k,val] of Object.entries(DIRECT_MAP)){
+            if(val && k.length>=4 && vLow.startsWith(k.substring(0,Math.min(k.length,8)))){ valor=val; break; }
+          }
+        }
+        if(valor){
+          const labelClean = v.replace(/[:\s]+$/,'');
+          // Write "Label: Value" to THIS cell (which is a master cell)
+          ws[addr] = {v: labelClean+': '+valor, t:'s', w: labelClean+': '+valor};
+        }
+      }
+    }
   });
 
-  setPg(80,'Guardando...');
-  const wbout=XLSX.write(wb,{type:'array',bookType:'xlsx'});
+  const wbout = XLSX.write(wb,{type:'array',bookType:'xlsx'});
   return wbout instanceof Uint8Array ? wbout.buffer : wbout;
 }
 async function fillPdf(buf,fields){
