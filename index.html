@@ -186,7 +186,7 @@ body{font-family:var(--f);background:var(--bg);color:var(--text);font-size:13px;
     <div class="ht">Rellena Formularios</div>
     <div class="hs" id="hSub">Conectando a SharePoint...</div>
   </div>
-  <div class="ver">v5.10</div>
+  <div class="ver">v5.11</div>
 </div>
 
 <!-- STEPS -->
@@ -962,6 +962,50 @@ async function fillDoc(){
     document.getElementById('dlSec').style.display='block';
   }
 }
+
+function buildZipStore(files){
+  const T=new Uint32Array(256);
+  for(let i=0;i<256;i++){let c=i;for(let j=0;j<8;j++)c=(c&1)?(0xEDB88320^(c>>>1)):(c>>>1);T[i]=c;}
+  function crc32(d){let c=0xFFFFFFFF;for(const b of d)c=(T[(c^b)&0xFF]^(c>>>8))>>>0;return(c^0xFFFFFFFF)>>>0;}
+  function w16(v){return new Uint8Array([v&255,(v>>8)&255]);}
+  function w32(v){return new Uint8Array([v&255,(v>>8)&255,(v>>16)&255,(v>>24)&255]);}
+  function cat(...a){const tot=a.reduce((s,x)=>s+x.length,0),r=new Uint8Array(tot);let p=0;for(const x of a){r.set(x,p);p+=x.length;}return r;}
+  const enc=new TextEncoder();
+  const entries=[];
+  let off=0;
+  for(const[name,data]of Object.entries(files)){
+    const fn=enc.encode(name);
+    const crc=crc32(data),sz=data.length;
+    // Local file header: sig(4)+ver(2)+flags(2)+method(2)+time(2)+date(2)+crc(4)+csz(4)+usz(4)+fnlen(2)+xlen(2) = 30 bytes
+    const lh=cat(
+      new Uint8Array([0x50,0x4B,0x03,0x04]),          // signature
+      new Uint8Array([0x14,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00]), // ver+flags+method+time+date
+      w32(crc),w32(sz),w32(sz),                        // crc,csz,usz
+      w16(fn.length),new Uint8Array([0x00,0x00]),       // fnlen,xlen
+      fn,data                                           // filename,data
+    );
+    entries.push({fn,crc,sz,off,lh});
+    off+=lh.length;
+  }
+  // Central directory: sig(4)+vermade(2)+verneed(2)+flags(2)+method(2)+time(2)+date(2)+crc(4)+csz(4)+usz(4)+fnlen(2)+xlen(2)+clen(2)+disk(2)+iattr(2)+eattr(4)+loff(4) = 46 bytes
+  const cdParts=entries.map(e=>cat(
+    new Uint8Array([0x50,0x4B,0x01,0x02]),
+    new Uint8Array([0x14,0x00,0x14,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00]),
+    w32(e.crc),w32(e.sz),w32(e.sz),
+    w16(e.fn.length),
+    new Uint8Array([0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00]),
+    w32(e.off),e.fn
+  ));
+  const cd=cat(...cdParts),n=entries.length;
+  // End of central directory: sig(4)+disk(2)+sdisk(2)+n(2)+tn(2)+cdsz(4)+cdoff(4)+clen(2) = 22 bytes
+  const eocd=cat(
+    new Uint8Array([0x50,0x4B,0x05,0x06,0x00,0x00,0x00,0x00]),
+    w16(n),w16(n),w32(cd.length),w32(off),
+    new Uint8Array([0x00,0x00])
+  );
+  return cat(...entries.map(e=>e.lh),cd,eocd).buffer;
+}
+
 async function fillDocx(buf,fields){
   setPg(20,'Abriendo DOCX...');
   const u8 = buf instanceof ArrayBuffer ? new Uint8Array(buf) : buf;
@@ -1040,10 +1084,10 @@ async function fillDocx(buf,fields){
   }
   zipFiles['word/document.xml']=newXmlBytes;
 
-  // fflate.zipSync con nivel 0 (STORE) — máxima compatibilidad
-  const zipped = fflate.zipSync(zipFiles, {level:0});
+  // buildZipStore — ZIP writer propio, compatible con Office
+  const zipped = buildZipStore(zipFiles);
   setPg(95,'Listo \u00b7 '+replaced+' rellenados');
-  return zipped.buffer;
+  return zipped;
 }
 async function fillXlsx(buf,fields){
   setPg(20,'Abriendo XLSX...');
