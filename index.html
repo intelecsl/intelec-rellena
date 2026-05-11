@@ -186,7 +186,7 @@ body{font-family:var(--f);background:var(--bg);color:var(--text);font-size:13px;
     <div class="ht">Rellena Formularios</div>
     <div class="hs" id="hSub">Conectando a SharePoint...</div>
   </div>
-  <div class="ver">v5.8</div>
+  <div class="ver">v5.10</div>
 </div>
 
 <!-- STEPS -->
@@ -745,7 +745,11 @@ async function analyze(rolIntelec=null){
     document.getElementById('anlz').style.display='none';
     document.getElementById('fmap').style.display='block';
     document.getElementById('rolSel').style.display='none';
-    document.getElementById('fcnt').textContent=fields.length+' campos de INTELEC';
+    // Añadir razón social al resumen si no está ya
+if(DATOS.razon_social && !fields.some(f=>f.valor===DATOS.razon_social)){
+  fields.unshift({field:'razon_social',label:'Nombre de la empresa',original:'',valor:DATOS.razon_social,clave_dato:'razon_social'});
+}
+document.getElementById('fcnt').textContent=fields.length+' campos de INTELEC';
     document.getElementById('btnNx').disabled=false;
     setSt(fields.length+' campos detectados · revisa y continúa');
   }catch(e){
@@ -946,7 +950,7 @@ async function fillDoc(){
     if(['docx','doc'].includes(ST.file.type))ST.buf=await fillDocx(ST.file.buf,active);
     else if(ST.file.type==='xlsx')ST.buf=await fillXlsx(ST.file.buf,active);
     else if(ST.file.type==='pdf')ST.buf=await fillPdf(ST.file.buf,active);
-    ST.html=buildDocHtml(active,ST.file.name);
+    ST.html=buildDocHtml(active,ST.file.name,ST.file.type==='xlsx');
     setPg(100,'Completado');await sl(300);
     document.getElementById('fill').style.display='none';document.getElementById('dlSec').style.display='block';
     document.getElementById('rSub').textContent=active.length+' campos · '+ST.file.name;
@@ -961,39 +965,32 @@ async function fillDoc(){
 async function fillDocx(buf,fields){
   setPg(20,'Abriendo DOCX...');
   const u8 = buf instanceof ArrayBuffer ? new Uint8Array(buf) : buf;
-  const z = new JSZip();
-  const zz = await z.loadAsync(u8);
-  let x = await zz.file('word/document.xml').async('string');
+  // Leer con JSZip (solo para extraer archivos)
+  const zz = await new JSZip().loadAsync(u8);
+  let x = new TextDecoder('utf-8').decode(await zz.file('word/document.xml').async('uint8array'));
   setPg(40,'Rellenando...');
 
-  const MARKER = 'Haga clic aqu\u00ed para escribir texto.';
-  const valores = fields.filter(f=>f.valor&&f.valor.trim()&&f.valor.trim()!=='.'&&!f.skip).map(f=>f.valor);
-  let replaced = 0;
+  const MARKER='Haga clic aqu\u00ed para escribir texto.';
+  const valores=fields.filter(f=>f.valor&&f.valor.trim()&&f.valor.trim()!=='.'&&!f.skip).map(f=>f.valor);
+  let replaced=0;
 
-  function findRunStart(s, beforePos){
-    let i = beforePos;
-    while(i >= 0){
-      i = s.lastIndexOf('<w:r', i - 1);
-      if(i < 0) break;
-      const c = s[i + 4];
-      if(c === '>' || c === ' ' || c === '\n' || c === '\r') return i;
-    }
+  function findRunStart(s,bp){
+    let i=bp;
+    while(i>=0){i=s.lastIndexOf('<w:r',i-1);if(i<0)break;const c=s[i+4];if(c==='>'||c===' '||c==='\n'||c==='\r')return i;}
     return -1;
   }
 
-  // PASO 1
-  for(let idx = 0; idx < valores.length; idx++){
-    const pos = x.indexOf(MARKER);
-    if(pos < 0) break;
-    const rStart = findRunStart(x, pos);
-    const rEnd   = x.indexOf('</w:r>', pos);
-    if(rStart < 0 || rEnd < 0) break;
-    x = x.substring(0, rStart)+'<w:r><w:t xml:space="preserve">'+eX(valores[idx])+'</w:t></w:r>'+x.substring(rEnd+'</w:r>'.length);
+  // PASO 1: Haga clic en orden
+  for(let idx=0;idx<valores.length;idx++){
+    const pos=x.indexOf(MARKER);if(pos<0)break;
+    const rS=findRunStart(x,pos),rE=x.indexOf('</w:r>',pos);
+    if(rS<0||rE<0)break;
+    x=x.substring(0,rS)+'<w:r><w:t xml:space="preserve">'+eX(valores[idx])+'</w:t></w:r>'+x.substring(rE+6);
     replaced++;
   }
 
-  // PASO 2: by SDT tag
-  const tagFills = {
+  // PASO 2: por tag SDT
+  const tagFills={
     'EMPRESA CONTRATADA':                   eX(DATOS.razon_social||''),
     'REPRESENTANTE EMPRESA CONTRATADA':     eX(DATOS.rep_nombre||DATOS.representante_legal||''),
     'NIF REPRESENTANTE EMPRESA CONTRATADA': eX(DATOS.rep_dni||DATOS.dni_representante||''),
@@ -1002,24 +999,22 @@ async function fillDocx(buf,fields){
     'PROVINCIA':                            eX(DATOS.localidad||DATOS.poblacion||''),
     'CARGO':                                eX(DATOS.rep_cargo||'Representante Legal'),
   };
-  for(const [tag, valor] of Object.entries(tagFills)){
-    if(!valor) continue;
-    const esc = tag.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
-    x = x.replace(
-      new RegExp('(<w:sdt>[\\s\\S]*?<w:tag\\s+w:val="'+esc+'"\\s*/>[\\s\\S]*?<w:sdtContent>)([\\s\\S]*?)(<\\/w:sdtContent>)','g'),
-      (_,pre,_o,post)=>{ replaced++; return pre+'<w:r><w:t xml:space="preserve">'+valor+'</w:t></w:r>'+post; }
-    );
+  for(const [tag,valor] of Object.entries(tagFills)){
+    if(!valor)continue;
+    const esc=tag.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+    x=x.replace(new RegExp('(<w:sdt>[\\s\\S]*?<w:tag\\s+w:val="'+esc+'"\\s*/>[\\s\\S]*?<w:sdtContent>)([\\s\\S]*?)(<\\/w:sdtContent>)','g'),
+      (_,pre,_o,post)=>{replaced++;return pre+'<w:r><w:t xml:space="preserve">'+valor+'</w:t></w:r>'+post;});
   }
 
-  // PASO 3: fill all sdtContent with text="." (unnamed linked controls)
-  const razon = eX(DATOS.razon_social||'');
+  // PASO 3: sdtContent con solo "."
+  const razon=eX(DATOS.razon_social||'');
   if(razon){
     const OP='<w:sdtContent>',CL='</w:sdtContent>';
-    let res='', i=0;
+    let res='',i=0;
     while(i<x.length){
-      const ts=x.indexOf(OP,i); if(ts<0){res+=x.substring(i);break;}
+      const ts=x.indexOf(OP,i);if(ts<0){res+=x.substring(i);break;}
       res+=x.substring(i,ts);
-      const te=x.indexOf(CL,ts+OP.length); if(te<0){res+=x.substring(ts);break;}
+      const te=x.indexOf(CL,ts+OP.length);if(te<0){res+=x.substring(ts);break;}
       const inner=x.substring(ts+OP.length,te);
       const txt=(inner.match(/<w:t[^>]*>([^<]+)<\/w:t>/g)||[]).map(t=>t.replace(/<[^>]+>/g,'')).join('').trim();
       if(txt==='.'){res+=OP+'<w:r><w:t xml:space="preserve">'+razon+'</w:t></w:r>'+CL;replaced++;}
@@ -1029,30 +1024,26 @@ async function fillDocx(buf,fields){
     x=res;
   }
 
-  setPg(70,'Empaquetando (ZIP seguro)...');
-  // Rebuild ZIP con orden correcto: [Content_Types].xml PRIMERO (requisito OOXML)
-  const newZip = new JSZip();
-  // 1. [Content_Types].xml primero
-  const ct = zz.file('[Content_Types].xml');
-  if(ct) newZip.file('[Content_Types].xml', await ct.async('uint8array'), {compression:'STORE'});
-  // 2. _rels/.rels
-  const rels = zz.file('_rels/.rels');
-  if(rels) newZip.file('_rels/.rels', await rels.async('uint8array'), {compression:'STORE'});
-  // 3. word/_rels/document.xml.rels
-  const wrels = zz.file('word/_rels/document.xml.rels');
-  if(wrels) newZip.file('word/_rels/document.xml.rels', await wrels.async('uint8array'), {compression:'STORE'});
-  // 4. Todos los demás (excepto los ya añadidos y document.xml)
-  const skip = new Set(['[Content_Types].xml','_rels/.rels','word/_rels/document.xml.rels','word/document.xml']);
-  for(const [name, file] of Object.entries(zz.files)){
-    if(file.dir||skip.has(name)) continue;
-    newZip.file(name, await file.async('uint8array'), {compression:'STORE'});
+  setPg(70,'Empaquetando con fflate...');
+  // Construir ZIP con fflate (más compatible con Office que JSZip)
+  const newXmlBytes = new TextEncoder().encode(x);
+  const zipFiles = {};
+  // Orden obligatorio OOXML: [Content_Types].xml PRIMERO
+  const ORDER = ['[Content_Types].xml','_rels/.rels','word/_rels/document.xml.rels'];
+  for(const name of ORDER){
+    const f=zz.file(name);
+    if(f) zipFiles[name]=await f.async('uint8array');
   }
-  // 5. word/document.xml modificado (al final)
-  newZip.file('word/document.xml', x, {compression:'STORE'});
+  for(const [name,file] of Object.entries(zz.files)){
+    if(file.dir||ORDER.includes(name)||name==='word/document.xml') continue;
+    zipFiles[name]=await file.async('uint8array');
+  }
+  zipFiles['word/document.xml']=newXmlBytes;
 
-  const out = await newZip.generateAsync({type:'arraybuffer', compression:'STORE'});
+  // fflate.zipSync con nivel 0 (STORE) — máxima compatibilidad
+  const zipped = fflate.zipSync(zipFiles, {level:0});
   setPg(95,'Listo \u00b7 '+replaced+' rellenados');
-  return out;
+  return zipped.buffer;
 }
 async function fillXlsx(buf,fields){
   setPg(20,'Abriendo XLSX...');
@@ -1195,28 +1186,33 @@ async function fillPdf(buf,fields){
   setPg(95,'Listo');
   return out.buffer;
 }
-function buildDocHtml(fields,fname){
+function buildDocHtml(fields,fname,isXlsx){
   const n=DATOS.razon_social||'INTELEC, S.L.';
   const c=DATOS.cif||'B28805398';
-  const d=DATOS.direccion_completa||'C/ Amado Nervo 13-15, 28007 Madrid';
-  const rows=fields.filter(f=>!f.skip&&f.valor).map(f=>`<tr><td>${eH(f.label)}</td><td>${eH(f.valor)}</td></tr>`).join('');
+  const d=DATOS.domicilio||'C/ Amado Nervo 13-15, Local';
+  const visFields=fields.filter(f=>!f.skip&&f.valor);
+  // Orientación automática: landscape si muchos campos o Excel, portrait si pocos
+  const landscape = isXlsx || visFields.length > 8;
+  const pgSize = landscape ? 'A4 landscape' : 'A4 portrait';
+  const rows=visFields.map(f=>`<tr><td>${eH(f.label)}</td><td>${eH(f.valor)}</td></tr>`).join('');
   return `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><title>${eH(fname)}</title>
-<style>@page{size:A4 landscape;margin:12mm}*{box-sizing:border-box;margin:0;padding:0}body{font-family:Calibri,Arial,sans-serif;font-size:11pt;color:#1a1a1a}
-.hdr{display:flex;align-items:center;justify-content:space-between;padding-bottom:10px;border-bottom:3px solid #293A5F;margin-bottom:16px}
-.ring{width:36px;height:36px;border-radius:50%;background:#F8DB2C;display:inline-block;vertical-align:middle;margin-right:8px}
-.logo{font-size:18pt;font-weight:700;color:#293A5F;vertical-align:middle}
-.hdr-r{text-align:right;font-size:9pt;color:#555}
-h1{font-size:12pt;color:#293A5F;margin-bottom:3px}
-table{width:100%;border-collapse:collapse;font-size:10pt}
-th{background:#293A5F;color:#fff;padding:5px 10px;text-align:left;font-size:9pt}
+<style>@page{size:${pgSize};margin:10mm}*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:Calibri,Arial,sans-serif;font-size:10pt;color:#1a1a1a}
+.hdr{display:flex;align-items:center;justify-content:space-between;padding-bottom:8px;border-bottom:3px solid #293A5F;margin-bottom:14px}
+.ring{width:32px;height:32px;border-radius:50%;background:#F8DB2C;display:inline-block;vertical-align:middle;margin-right:7px}
+.logo{font-size:16pt;font-weight:700;color:#293A5F;vertical-align:middle}
+.hdr-r{text-align:right;font-size:8pt;color:#555}
+h1{font-size:11pt;color:#293A5F;margin-bottom:2px}
+table{width:100%;border-collapse:collapse;font-size:9.5pt}
+th{background:#293A5F;color:#fff;padding:5px 8px;text-align:left;font-size:8.5pt}
 tr:nth-child(even)td{background:#f6f7fb}
-td{padding:5px 10px;border-bottom:1px solid #e5e7ef;vertical-align:top}
-td:first-child{font-weight:600;color:#293A5F;width:36%}
-.ft{margin-top:12px;font-size:8pt;color:#aaa;display:flex;justify-content:space-between;border-top:1px solid #e5e7ef;padding-top:5px}
+td{padding:4px 8px;border-bottom:1px solid #e5e7ef;vertical-align:top}
+td:first-child{font-weight:600;color:#293A5F;width:${landscape?'30%':'40%'}}
+.ft{margin-top:10px;font-size:7.5pt;color:#aaa;display:flex;justify-content:space-between;border-top:1px solid #e5e7ef;padding-top:4px}
 @media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact}}</style></head>
 <body><div class="hdr"><div><span class="ring"></span><span class="logo">intelec</span></div>
 <div class="hdr-r"><strong>${eH(n)}</strong> &middot; ${eH(c)}<br>${eH(d)}</div></div>
-<h1>${eH(fname)}</h1><p style="font-size:9pt;color:#888;margin-bottom:12px">Generado ${new Date().toLocaleDateString('es-ES',{day:'2-digit',month:'long',year:'numeric'})}</p>
+<h1>${eH(fname)}</h1><p style="font-size:8pt;color:#888;margin-bottom:10px">Generado ${new Date().toLocaleDateString('es-ES',{day:'2-digit',month:'long',year:'numeric'})}</p>
 <table><tr><th>Campo</th><th>Valor</th></tr>${rows}</table>
 <div class="ft"><span>${eH(n)} &middot; CIF ${eH(c)}</span><span>Rellena Formularios &middot; Intelec</span></div>
 </body></html>`;
@@ -1232,22 +1228,8 @@ async function dlPDF(){
   const btn=document.getElementById('btnPdf');
   if(btn){btn.disabled=true;btn.textContent='Convirtiendo...';}
   try{
-    // Obtener token con Files.ReadWrite
-    const client=getMsal();
-    const accounts=client.getAllAccounts();
-    let tok;
-    try{
-      const r=await client.acquireTokenSilent({
-        scopes:['https://graph.microsoft.com/Files.ReadWrite'],
-        account:accounts[0]
-      });
-      tok=r.accessToken;
-    }catch(e){
-      const r=await client.acquireTokenPopup({
-        scopes:['https://graph.microsoft.com/Files.ReadWrite']
-      });
-      tok=r.accessToken;
-    }
+    const tok = await getStoredToken();
+    if(!tok) throw new Error('Sin token de sesión — inicia sesión primero');
 
     const mime=ext==='docx'
       ?'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
@@ -1256,22 +1238,33 @@ async function dlPDF(){
 
     const upR=await fetch('https://graph.microsoft.com/v1.0/me/drive/root:/'+encodeURIComponent(tmp)+':/content',
       {method:'PUT',headers:{'Authorization':'Bearer '+tok,'Content-Type':mime},body:ST.buf});
-    if(!upR.ok) throw new Error('Subida: '+upR.status);
+    if(!upR.ok){
+      const e=await upR.json().catch(()=>({}));
+      throw new Error('Subida fallida ('+upR.status+'): '+(e.error?.message||'sin detalles'));
+    }
     const itm=await upR.json();
 
     const pdfR=await fetch('https://graph.microsoft.com/v1.0/me/drive/items/'+itm.id+'/content?format=pdf',
       {headers:{'Authorization':'Bearer '+tok}});
-    if(!pdfR.ok) throw new Error('Conversión '+pdfR.status+'. Acepta el permiso Files.ReadWrite en tu cuenta.');
+    if(!pdfR.ok){
+      fetch('https://graph.microsoft.com/v1.0/me/drive/items/'+itm.id,{method:'DELETE',headers:{'Authorization':'Bearer '+tok}}).catch(()=>{});
+      throw new Error('Conversión a PDF fallida ('+pdfR.status+')');
+    }
     const pdfBuf=await pdfR.arrayBuffer();
     fetch('https://graph.microsoft.com/v1.0/me/drive/items/'+itm.id,
       {method:'DELETE',headers:{'Authorization':'Bearer '+tok}}).catch(()=>{});
     _download(pdfBuf,base+'.pdf','application/pdf');
     setSt('PDF descargado ✓');toast('PDF listo ✓');
   }catch(err){
-    toast('PDF directo: '+err.message);
-    setSt('Usa Ctrl+P \u2192 Guardar como PDF en la ventana emergente');
+    toast('PDF Graph: '+err.message);
+    setSt('Abriendo ventana para imprimir como PDF...');
+    const isXlsx=ST.file.type==='xlsx';
     const w=window.open('','_blank','width=900,height=700');
-    if(w){w.document.write(buildDocHtml(ST.fields.filter(f=>!f.skip&&f.valor),ST.file.name));w.document.close();setTimeout(()=>{w.focus();w.print();},800);}
+    if(w){
+      w.document.write(buildDocHtml(ST.fields.filter(f=>!f.skip&&f.valor),ST.file.name,isXlsx));
+      w.document.close();
+      setTimeout(()=>{w.focus();w.print();},800);
+    }
   }finally{
     if(btn){btn.disabled=false;btn.textContent='\u2193 Descargar PDF';}
   }
