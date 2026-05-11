@@ -186,7 +186,7 @@ body{font-family:var(--f);background:var(--bg);color:var(--text);font-size:13px;
     <div class="ht">Rellena Formularios</div>
     <div class="hs" id="hSub">Conectando a SharePoint...</div>
   </div>
-  <div class="ver">v5.15</div>
+  <div class="ver">v5.16</div>
 </div>
 
 <!-- STEPS -->
@@ -1029,6 +1029,7 @@ async function fillDocx(buf,fields){
 
   setPg(70,'Empaquetando (surgical patch)...');
   const newXml=new TextEncoder().encode(x);
+  ST.filledXml = x; // Cache for docxToHtml — no need to re-parse ZIP
   const out=await surgicalPatch(u8,newXml);
   setPg(95,'Listo \u00b7 '+replaced+' rellenados');
   return out;
@@ -1343,51 +1344,59 @@ async function dlPDF(){
 
 // Convierte DOCX rellenado a HTML para impresión (muestra el contrato real)
 async function docxToHtml(buf,fname){
-  const u8=buf instanceof ArrayBuffer?new Uint8Array(buf):new Uint8Array(buf.buffer||buf);
-  const zz=await new JSZip().loadAsync(u8);
-  const xml=new TextDecoder().decode(await zz.file('word/document.xml').async('uint8array'));
   const n=DATOS.razon_social||'INTELEC, S.L.';
   const c=DATOS.cif||'B28805398';
   const d=DATOS.domicilio||'C/ Amado Nervo 13-15, Local';
 
-  // Extraer párrafos con su texto y estilo básico
+  // Use cached XML from fillDocx (avoids re-parsing ZIP, guaranteed correct)
+  let xml;
+  if(ST.filledXml && ST.file && ST.file.type !== 'pdf'){
+    xml = ST.filledXml;
+  } else {
+    try{
+      const u8=buf instanceof ArrayBuffer?new Uint8Array(buf):new Uint8Array(buf.buffer||buf);
+      const zz=await new JSZip().loadAsync(u8);
+      xml=new TextDecoder().decode(await zz.file('word/document.xml').async('uint8array'));
+    }catch(e){ xml=''; }
+  }
+
+  // Extract paragraphs — including text inside SDTs
   let body='';
   const paras=xml.match(/<w:p[ >][\s\S]*?<\/w:p>/g)||[];
   for(const p of paras){
     const styleM=p.match(/<w:pStyle w:val="([^"]+)"/);
     const style=styleM?styleM[1]:'';
-    const texts=(p.match(/<w:t[^>]*>([^<]*)<\/w:t>/g)||[]).map(t=>t.replace(/<[^>]+>/g,''));
-    const text=texts.join('').trim();
-    if(!text)continue;
-    if(/[Hh]eading|[Tt]itle|TITULO|[Cc]abecera/.test(style)){
+    const texts=(p.match(/<w:t[^>]*>([^<]*)<\/w:t>/g)||[])
+      .map(t=>t.replace(/<[^>]+>/g,'').trim())
+      .filter(t=>t.length>0);
+    const text=texts.join(' ').trim();
+    if(!text) continue;
+    if(/[Hh]eading|[Tt]itle|TITULO|cabecera/i.test(style)){
       body+=`<h2>${eHtml(text)}</h2>`;
-    } else if(/[Cc]lause|[Cc]lauses|CLAUSULA|[Nn]umbered/.test(style)){
-      body+=`<h3>${eHtml(text)}</h3>`;
     } else {
       body+=`<p>${eHtml(text)}</p>`;
     }
   }
 
   return `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><title>${eHtml(fname)}</title>
-<style>@page{size:A4 portrait;margin:25mm 20mm}
+<style>@page{size:A4 portrait;margin:20mm}
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:'Times New Roman',Times,serif;font-size:11pt;color:#000;line-height:1.4}
-.hdr{text-align:center;border-bottom:2px solid #293A5F;padding-bottom:8px;margin-bottom:16px}
+body{font-family:'Times New Roman',Times,serif;font-size:11pt;color:#000;line-height:1.5}
+.hdr{text-align:center;border-bottom:2px solid #293A5F;padding-bottom:10px;margin-bottom:18px}
 .hdr-logo{font-size:14pt;font-weight:700;color:#293A5F}
 .hdr-info{font-size:9pt;color:#555;margin-top:3px}
-h1{font-size:12pt;font-weight:700;text-align:center;margin:12pt 0 8pt;text-transform:uppercase}
-h2{font-size:11pt;font-weight:700;text-align:center;margin:10pt 0 6pt;text-transform:uppercase}
-h3{font-size:11pt;font-weight:700;margin:8pt 0 4pt}
-p{margin:5pt 0;text-align:justify}
-@media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact}}</style>
-</head><body>
+h2{font-size:11pt;font-weight:700;text-align:center;margin:12pt 0 6pt;text-transform:uppercase}
+p{margin:4pt 0;text-align:justify}
+@media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact}}</style></head>
+<body>
 <div class="hdr">
-  <div class="hdr-logo">intelec &nbsp;&nbsp;·&nbsp;&nbsp; ${eHtml(n)}</div>
-  <div class="hdr-info">CIF: ${eHtml(c)} &nbsp;&nbsp;·&nbsp;&nbsp; ${eHtml(d)}</div>
+  <div class="hdr-logo">intelec &nbsp;·&nbsp; ${eHtml(n)}</div>
+  <div class="hdr-info">CIF: ${eHtml(c)} &nbsp;·&nbsp; ${eHtml(d)}</div>
 </div>
 ${body}
 </body></html>`;
 }
+function eHtml(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 function eHtml(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 
 function _download(buf, filename, mime){
