@@ -186,7 +186,7 @@ body{font-family:var(--f);background:var(--bg);color:var(--text);font-size:13px;
     <div class="ht">Rellena Formularios</div>
     <div class="hs" id="hSub">Conectando a SharePoint...</div>
   </div>
-  <div class="ver">v5.7</div>
+  <div class="ver">v5.8</div>
 </div>
 
 <!-- STEPS -->
@@ -981,26 +981,24 @@ async function fillDocx(buf,fields){
     return -1;
   }
 
-  // PASO 1: fill "Haga clic" in order (skip "." values)
+  // PASO 1
   for(let idx = 0; idx < valores.length; idx++){
     const pos = x.indexOf(MARKER);
     if(pos < 0) break;
     const rStart = findRunStart(x, pos);
     const rEnd   = x.indexOf('</w:r>', pos);
     if(rStart < 0 || rEnd < 0) break;
-    x = x.substring(0, rStart)
-        + '<w:r><w:t xml:space="preserve">' + eX(valores[idx]) + '</w:t></w:r>'
-        + x.substring(rEnd + '</w:r>'.length);
+    x = x.substring(0, rStart)+'<w:r><w:t xml:space="preserve">'+eX(valores[idx])+'</w:t></w:r>'+x.substring(rEnd+'</w:r>'.length);
     replaced++;
   }
 
-  // PASO 2: fill ALL SDTs by tag name
+  // PASO 2: by SDT tag
   const tagFills = {
     'EMPRESA CONTRATADA':                   eX(DATOS.razon_social||''),
     'REPRESENTANTE EMPRESA CONTRATADA':     eX(DATOS.rep_nombre||DATOS.representante_legal||''),
     'NIF REPRESENTANTE EMPRESA CONTRATADA': eX(DATOS.rep_dni||DATOS.dni_representante||''),
     'NIF EMPRESA CONTRATADA':               eX(DATOS.cif||''),
-    'DIRECCIÓN':                            eX(DATOS.domicilio||DATOS.domicilio_completo||DATOS.domicilio_social||''),
+    'DIRECCIÓN':                            eX(DATOS.domicilio||DATOS.domicilio_completo||''),
     'PROVINCIA':                            eX(DATOS.localidad||DATOS.poblacion||''),
     'CARGO':                                eX(DATOS.rep_cargo||'Representante Legal'),
   };
@@ -1009,40 +1007,51 @@ async function fillDocx(buf,fields){
     const esc = tag.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
     x = x.replace(
       new RegExp('(<w:sdt>[\\s\\S]*?<w:tag\\s+w:val="'+esc+'"\\s*/>[\\s\\S]*?<w:sdtContent>)([\\s\\S]*?)(<\\/w:sdtContent>)','g'),
-      (_m,pre,_old,post)=>{ replaced++; return pre+'<w:r><w:t xml:space="preserve">'+valor+'</w:t></w:r>'+post; }
+      (_,pre,_o,post)=>{ replaced++; return pre+'<w:r><w:t xml:space="preserve">'+valor+'</w:t></w:r>'+post; }
     );
   }
 
-  // PASO 3: fill ALL sdtContent blocks where ALL text = "." (unnamed linked controls)
+  // PASO 3: fill all sdtContent with text="." (unnamed linked controls)
   const razon = eX(DATOS.razon_social||'');
   if(razon){
-    const OPEN = '<w:sdtContent>', CLOSE = '</w:sdtContent>';
-    let result = '', i = 0;
-    while(i < x.length){
-      const ts = x.indexOf(OPEN, i);
-      if(ts < 0){ result += x.substring(i); break; }
-      result += x.substring(i, ts);
-      const te = x.indexOf(CLOSE, ts + OPEN.length);
-      if(te < 0){ result += x.substring(ts); break; }
-      const inner = x.substring(ts + OPEN.length, te);
-      const allText = (inner.match(/<w:t[^>]*>([^<]+)<\/w:t>/g)||[])
-        .map(t=>t.replace(/<[^>]+>/g,'')).join('').trim();
-      if(allText === '.'){
-        result += OPEN+'<w:r><w:t xml:space="preserve">'+razon+'</w:t></w:r>'+CLOSE;
-        replaced++;
-      } else {
-        result += x.substring(ts, te + CLOSE.length);
-      }
-      i = te + CLOSE.length;
+    const OP='<w:sdtContent>',CL='</w:sdtContent>';
+    let res='', i=0;
+    while(i<x.length){
+      const ts=x.indexOf(OP,i); if(ts<0){res+=x.substring(i);break;}
+      res+=x.substring(i,ts);
+      const te=x.indexOf(CL,ts+OP.length); if(te<0){res+=x.substring(ts);break;}
+      const inner=x.substring(ts+OP.length,te);
+      const txt=(inner.match(/<w:t[^>]*>([^<]+)<\/w:t>/g)||[]).map(t=>t.replace(/<[^>]+>/g,'')).join('').trim();
+      if(txt==='.'){res+=OP+'<w:r><w:t xml:space="preserve">'+razon+'</w:t></w:r>'+CL;replaced++;}
+      else res+=x.substring(ts,te+CL.length);
+      i=te+CL.length;
     }
-    x = result;
+    x=res;
   }
 
-  setPg(80,'Empaquetando...');
-  zz.file('word/document.xml', x);
-  // Usar STORE (sin compresión) — evita corrupción ZIP con Microsoft Word
-  const out = await zz.generateAsync({type:'arraybuffer', compression:'STORE'});
-  setPg(95,'Listo \u00b7 '+replaced+' campos rellenados');
+  setPg(70,'Empaquetando (ZIP seguro)...');
+  // Rebuild ZIP con orden correcto: [Content_Types].xml PRIMERO (requisito OOXML)
+  const newZip = new JSZip();
+  // 1. [Content_Types].xml primero
+  const ct = zz.file('[Content_Types].xml');
+  if(ct) newZip.file('[Content_Types].xml', await ct.async('uint8array'), {compression:'STORE'});
+  // 2. _rels/.rels
+  const rels = zz.file('_rels/.rels');
+  if(rels) newZip.file('_rels/.rels', await rels.async('uint8array'), {compression:'STORE'});
+  // 3. word/_rels/document.xml.rels
+  const wrels = zz.file('word/_rels/document.xml.rels');
+  if(wrels) newZip.file('word/_rels/document.xml.rels', await wrels.async('uint8array'), {compression:'STORE'});
+  // 4. Todos los demás (excepto los ya añadidos y document.xml)
+  const skip = new Set(['[Content_Types].xml','_rels/.rels','word/_rels/document.xml.rels','word/document.xml']);
+  for(const [name, file] of Object.entries(zz.files)){
+    if(file.dir||skip.has(name)) continue;
+    newZip.file(name, await file.async('uint8array'), {compression:'STORE'});
+  }
+  // 5. word/document.xml modificado (al final)
+  newZip.file('word/document.xml', x, {compression:'STORE'});
+
+  const out = await newZip.generateAsync({type:'arraybuffer', compression:'STORE'});
+  setPg(95,'Listo \u00b7 '+replaced+' rellenados');
   return out;
 }
 async function fillXlsx(buf,fields){
@@ -1216,77 +1225,55 @@ td:first-child{font-weight:600;color:#293A5F;width:36%}
 // ── DOWNLOAD ──
 async function dlPDF(){
   if(!ST.buf){toast('Sin documento');return;}
-  const ext = ST.file.type;
-  const base = ST.file.name.replace(/\.[^.]+$/,'')+'_INTELEC';
-
-  // PDF: descargar directo
+  const ext=ST.file.type;
+  const base=ST.file.name.replace(/\.[^.]+$/,'')+'_INTELEC';
   if(ext==='pdf'){_download(ST.buf,base+'.pdf','application/pdf');return;}
 
-  // DOCX/XLSX: intentar conversión real via Graph API
-  document.getElementById('btnPdf').disabled=true;
-  document.getElementById('btnPdf').textContent='Convirtiendo...';
+  const btn=document.getElementById('btnPdf');
+  if(btn){btn.disabled=true;btn.textContent='Convirtiendo...';}
   try{
-    // Solicitar token con scope Files.ReadWrite explícito
+    // Obtener token con Files.ReadWrite
+    const client=getMsal();
+    const accounts=client.getAllAccounts();
     let tok;
     try{
-      tok = await MSALclient.acquireTokenSilent({
+      const r=await client.acquireTokenSilent({
         scopes:['https://graph.microsoft.com/Files.ReadWrite'],
-        account: MSALclient.getAllAccounts()[0]
-      }).then(r=>r.accessToken);
+        account:accounts[0]
+      });
+      tok=r.accessToken;
     }catch(e){
-      // Si falla silent, intentar popup
-      tok = await MSALclient.acquireTokenPopup({
+      const r=await client.acquireTokenPopup({
         scopes:['https://graph.microsoft.com/Files.ReadWrite']
-      }).then(r=>r.accessToken);
+      });
+      tok=r.accessToken;
     }
 
-    const mime = ext==='docx'
-      ? 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-      : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
-    const tmpName = '_rellena_tmp_'+Date.now()+'.'+ext;
+    const mime=ext==='docx'
+      ?'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+      :'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+    const tmp='_rellena_'+Date.now()+'.'+ext;
 
-    // Subir a OneDrive
-    const upResp = await fetch(
-      'https://graph.microsoft.com/v1.0/me/drive/root:/'+encodeURIComponent(tmpName)+':/content',
-      {method:'PUT',headers:{'Authorization':'Bearer '+tok,'Content-Type':mime},body:ST.buf}
-    );
-    if(!upResp.ok){
-      const err=await upResp.json().catch(()=>({}));
-      throw new Error('Subida: '+(err.error?.message||upResp.status));
-    }
-    const item = await upResp.json();
+    const upR=await fetch('https://graph.microsoft.com/v1.0/me/drive/root:/'+encodeURIComponent(tmp)+':/content',
+      {method:'PUT',headers:{'Authorization':'Bearer '+tok,'Content-Type':mime},body:ST.buf});
+    if(!upR.ok) throw new Error('Subida: '+upR.status);
+    const itm=await upR.json();
 
-    // Convertir a PDF
-    const pdfResp = await fetch(
-      'https://graph.microsoft.com/v1.0/me/drive/items/'+item.id+'/content?format=pdf',
-      {headers:{'Authorization':'Bearer '+tok}}
-    );
-    if(!pdfResp.ok) throw new Error('Conversión PDF: '+pdfResp.status);
-    const pdfBuf = await pdfResp.arrayBuffer();
-
-    // Eliminar temporal
-    fetch('https://graph.microsoft.com/v1.0/me/drive/items/'+item.id,
+    const pdfR=await fetch('https://graph.microsoft.com/v1.0/me/drive/items/'+itm.id+'/content?format=pdf',
+      {headers:{'Authorization':'Bearer '+tok}});
+    if(!pdfR.ok) throw new Error('Conversión '+pdfR.status+'. Acepta el permiso Files.ReadWrite en tu cuenta.');
+    const pdfBuf=await pdfR.arrayBuffer();
+    fetch('https://graph.microsoft.com/v1.0/me/drive/items/'+itm.id,
       {method:'DELETE',headers:{'Authorization':'Bearer '+tok}}).catch(()=>{});
-
-    _download(pdfBuf, base+'.pdf','application/pdf');
-    setSt('PDF descargado correctamente');
-    toast('PDF generado ✓');
-
+    _download(pdfBuf,base+'.pdf','application/pdf');
+    setSt('PDF descargado ✓');toast('PDF listo ✓');
   }catch(err){
-    // Fallback: imprimir como PDF
-    toast('Conversión Graph falló: '+err.message);
-    setSt('Abre la ventana emergente y usa Ctrl+P \u2192 "Guardar como PDF"');
-    // Abrir el DOCX rellenado en el navegador como HTML para imprimir
-    const htmlDoc = buildDocHtml(ST.fields.filter(f=>!f.skip&&f.valor), ST.file.name);
-    const w = window.open('','_blank','width=900,height=700');
-    if(w){
-      w.document.write(htmlDoc);
-      w.document.close();
-      setTimeout(()=>{w.focus();w.print();},800);
-    }
+    toast('PDF directo: '+err.message);
+    setSt('Usa Ctrl+P \u2192 Guardar como PDF en la ventana emergente');
+    const w=window.open('','_blank','width=900,height=700');
+    if(w){w.document.write(buildDocHtml(ST.fields.filter(f=>!f.skip&&f.valor),ST.file.name));w.document.close();setTimeout(()=>{w.focus();w.print();},800);}
   }finally{
-    document.getElementById('btnPdf').disabled=false;
-    document.getElementById('btnPdf').textContent='\u2193 Descargar PDF';
+    if(btn){btn.disabled=false;btn.textContent='\u2193 Descargar PDF';}
   }
 }
 
