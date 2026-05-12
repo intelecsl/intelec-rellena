@@ -186,7 +186,7 @@ body{font-family:var(--f);background:var(--bg);color:var(--text);font-size:13px;
     <div class="ht">Rellena Formularios</div>
     <div class="hs" id="hSub">Conectando a SharePoint...</div>
   </div>
-  <div class="ver">v5.18</div>
+  <div class="ver">v5.20</div>
 </div>
 
 <!-- STEPS -->
@@ -788,7 +788,62 @@ async function exTxt(buf,type){
        .trim();
     // Numerar cada placeholder para que Claude vea el contexto
     let n=0;
-    const MARKER='Haga clic aquí para escribir texto.';
+    // PASO 0: Rellenar celdas vacías de tabla por label (formularios tipo Eurofesa/ficha)
+  // Funciona para DOCXs con tabla label→celda vacía (sin SDTs ni placeholders)
+  {
+    const tableMap={
+      'nombre/razon social': eX(DATOS.razon_social||''),
+      'nombre/razón social': eX(DATOS.razon_social||''),
+      'nif/cif':  eX(DATOS.cif||''),
+      'cif/nif':  eX(DATOS.cif||''),
+      'nif':      eX(DATOS.cif||''),
+      'cif':      eX(DATOS.cif||''),
+      'direccion':   eX(DATOS.domicilio||''),
+      'dirección':   eX(DATOS.domicilio||''),
+      'poblacion':   eX(DATOS.localidad||''),
+      'población':   eX(DATOS.localidad||''),
+      'cp':       eX(DATOS.cp||''),
+      'provincia':eX(DATOS.provincia||''),
+      'telefono': eX(DATOS.telefono||''),
+      'teléfono': eX(DATOS.telefono||''),
+      'persona contacto': eX(DATOS.admin_nombre||''),
+      'cargo':    eX(DATOS.admin_cargo||DATOS.rep_cargo||''),
+      'mail':     eX(DATOS.email_contabilidad||DATOS.email||''),
+      'e-mail':   eX(DATOS.email_contabilidad||DATOS.email||''),
+      'email':    eX(DATOS.email_contabilidad||DATOS.email||''),
+      'iban':     eX(DATOS.iban_fmt||DATOS.iban||''),
+      'medio':    'Transferencia',
+      'plazo (días)': eX(DATOS.plazo_pago||'60'),
+      'plazo':    eX(DATOS.plazo_pago||'60'),
+      'día/s fijo/s': eX(DATOS.dias_pago||'7 y 23'),
+      'nombre representante': eX(DATOS.rep_nombre||''),
+      'representante': eX(DATOS.rep_nombre||''),
+      'swift bic': eX(DATOS.swift_bic||''),
+    };
+    // Procesar cada fila de tabla: label → celda vacía adyacente
+    x=x.replace(/<w:tr[ >][\s\S]*?<\/w:tr>/g,rowXml=>{
+      const cells=[...rowXml.matchAll(/<w:tc>[\s\S]*?<\/w:tc>/g)].map(m=>({text:m[0].match(/<w:t[^>]*>([^<]+)<\/w:t>/g)?.map(t=>t.replace(/<[^>]+>/g,'')).join('').trim()||'',xml:m[0],idx:m.index,end:m.index+m[0].length}));
+      let res=rowXml;let off=0;
+      for(let i=0;i<cells.length-1;i++){
+        const key=cells[i].text.toLowerCase().trim();
+        const val=tableMap[key];
+        if(val&&!cells[i+1].text){
+          // Insertar valor en la celda vacía adyacente
+          const oldCell=cells[i+1].xml;
+          const newCell=oldCell.replace(/<\/w:p>/,'<w:r><w:t xml:space="preserve">'+val+'</w:t></w:r></w:p>');
+          const pos=cells[i+1].idx+off;
+          res=res.substring(0,pos)+newCell+res.substring(pos+oldCell.length);
+          off+=newCell.length-oldCell.length;
+          i++;// saltar la celda que acabamos de rellenar
+        }
+      }
+      return res;
+    });
+    const tableReplaced=(x.match(/<w:t[^>]*>[^<]+<\/w:t>/g)||[]).filter(t=>Object.values(tableMap).some(v=>v&&t.includes(v))).length;
+    if(tableReplaced>0){replaced+=tableReplaced;setPg(45,'Tabla rellenada: '+tableReplaced+' campos');}
+  }
+
+  const MARKER='Haga clic aquí para escribir texto.';
     while(x.includes(MARKER)){ n++; x=x.replace(MARKER,'[CAMPO_'+n+']'); }
     return '[TOTAL_CAMPOS:'+n+']\n'+x.substring(0,12000);
   }
@@ -975,6 +1030,61 @@ async function fillDocx(buf,fields){
   let x = new TextDecoder('utf-8').decode(await zz.file('word/document.xml').async('uint8array'));
   setPg(35,'Rellenando...');
 
+  // PASO 0: Rellenar celdas vacías de tabla por label (formularios tipo Eurofesa/ficha)
+  // Funciona para DOCXs con tabla label→celda vacía (sin SDTs ni placeholders)
+  {
+    const tableMap={
+      'nombre/razon social': eX(DATOS.razon_social||''),
+      'nombre/razón social': eX(DATOS.razon_social||''),
+      'nif/cif':  eX(DATOS.cif||''),
+      'cif/nif':  eX(DATOS.cif||''),
+      'nif':      eX(DATOS.cif||''),
+      'cif':      eX(DATOS.cif||''),
+      'direccion':   eX(DATOS.domicilio||''),
+      'dirección':   eX(DATOS.domicilio||''),
+      'poblacion':   eX(DATOS.localidad||''),
+      'población':   eX(DATOS.localidad||''),
+      'cp':       eX(DATOS.cp||''),
+      'provincia':eX(DATOS.provincia||''),
+      'telefono': eX(DATOS.telefono||''),
+      'teléfono': eX(DATOS.telefono||''),
+      'persona contacto': eX(DATOS.admin_nombre||''),
+      'cargo':    eX(DATOS.admin_cargo||DATOS.rep_cargo||''),
+      'mail':     eX(DATOS.email_contabilidad||DATOS.email||''),
+      'e-mail':   eX(DATOS.email_contabilidad||DATOS.email||''),
+      'email':    eX(DATOS.email_contabilidad||DATOS.email||''),
+      'iban':     eX(DATOS.iban_fmt||DATOS.iban||''),
+      'medio':    'Transferencia',
+      'plazo (días)': eX(DATOS.plazo_pago||'60'),
+      'plazo':    eX(DATOS.plazo_pago||'60'),
+      'día/s fijo/s': eX(DATOS.dias_pago||'7 y 23'),
+      'nombre representante': eX(DATOS.rep_nombre||''),
+      'representante': eX(DATOS.rep_nombre||''),
+      'swift bic': eX(DATOS.swift_bic||''),
+    };
+    // Procesar cada fila de tabla: label → celda vacía adyacente
+    x=x.replace(/<w:tr[ >][\s\S]*?<\/w:tr>/g,rowXml=>{
+      const cells=[...rowXml.matchAll(/<w:tc>[\s\S]*?<\/w:tc>/g)].map(m=>({text:m[0].match(/<w:t[^>]*>([^<]+)<\/w:t>/g)?.map(t=>t.replace(/<[^>]+>/g,'')).join('').trim()||'',xml:m[0],idx:m.index,end:m.index+m[0].length}));
+      let res=rowXml;let off=0;
+      for(let i=0;i<cells.length-1;i++){
+        const key=cells[i].text.toLowerCase().trim();
+        const val=tableMap[key];
+        if(val&&!cells[i+1].text){
+          // Insertar valor en la celda vacía adyacente
+          const oldCell=cells[i+1].xml;
+          const newCell=oldCell.replace(/<\/w:p>/,'<w:r><w:t xml:space="preserve">'+val+'</w:t></w:r></w:p>');
+          const pos=cells[i+1].idx+off;
+          res=res.substring(0,pos)+newCell+res.substring(pos+oldCell.length);
+          off+=newCell.length-oldCell.length;
+          i++;// saltar la celda que acabamos de rellenar
+        }
+      }
+      return res;
+    });
+    const tableReplaced=(x.match(/<w:t[^>]*>[^<]+<\/w:t>/g)||[]).filter(t=>Object.values(tableMap).some(v=>v&&t.includes(v))).length;
+    if(tableReplaced>0){replaced+=tableReplaced;setPg(45,'Tabla rellenada: '+tableReplaced+' campos');}
+  }
+
   const MARKER='Haga clic aqu\u00ed para escribir texto.';
   const valores=fields.filter(f=>f.valor&&f.valor.trim()&&f.valor.trim()!=='.'&&!f.skip).map(f=>f.valor);
   let replaced=0;
@@ -1039,27 +1149,23 @@ async function fillDocx(buf,fields){
   const newXml=new TextEncoder().encode(x);
     ST.filledXml = x; // Cache for docxToHtml
 
-  // PASO 4: Actualizar docProps/core.xml — el SDT EMPRESA CONTRATADA está enlazado
-  // a dc:subject via data binding. Word sobreescribe sdtContent con este valor.
-  setPg(75,'Actualizando metadatos...');
+  // PASO 4: Actualizar docProps/core.xml mediante surgical patch
+  // El SDT EMPRESA CONTRATADA está data-bound a dc:subject — Word lo sobreescribe al abrir
+  setPg(75,'Actualizando metadatos del documento...');
   let u8b = u8;
   try{
     const zz2=await new JSZip().loadAsync(u8);
     let coreXml=new TextDecoder().decode(await zz2.file('docProps/core.xml').async('uint8array'));
     const razonSocial=DATOS.razon_social||'INTELEC, S.L.';
-    // Replace dc:subject value
-    coreXml=coreXml.replace(/<dc:subject>[^<]*<\/dc:subject>/,'<dc:subject>'+razonSocial+'</dc:subject>');
+    coreXml=coreXml.replace(/<dc:subject>[^<]*<\/dc:subject>/,'<dc:subject>'+eX(razonSocial)+'</dc:subject>');
     if(!coreXml.includes('<dc:subject')){
-      coreXml=coreXml.replace('</cp:coreProperties>','<dc:subject>'+razonSocial+'</dc:subject></cp:coreProperties>');
+      coreXml=coreXml.replace('</cp:coreProperties>','<dc:subject>'+eX(razonSocial)+'</dc:subject></cp:coreProperties>');
     }
-    const coreBytes=new TextEncoder().encode(coreXml);
-    // Save modified core.xml back  
-    zz2.file('docProps/core.xml',coreBytes);
-    // Get the patched ZIP as base for surgical patch
-    u8b=new Uint8Array(await zz2.generateAsync({type:'arraybuffer',compression:'STORE'}));
+    // Surgical patch para core.xml (no regenera el ZIP entero)
+    u8b=new Uint8Array(await surgicalPatch(u8,new TextEncoder().encode(coreXml),'docProps/core.xml'));
   }catch(e){console.warn('core.xml patch failed:',e);}
 
-  setPg(85,'Empaquetando...');
+  setPg(85,'Empaquetando document.xml...');
   const out=await surgicalPatch(u8b,newXml,'word/document.xml');
   setPg(95,'Listo \u00b7 '+replaced+' rellenados');
   return out;
@@ -1157,44 +1263,105 @@ async function fillXlsx(buf,fields){
   const u8 = buf instanceof ArrayBuffer ? new Uint8Array(buf) : buf;
   const wb = XLSX.read(u8,{type:'array',cellText:false,cellNF:false});
   setPg(50,'Aplicando valores...');
-
-  // Claves reales del SharePoint verificadas
   const D = DATOS;
+
+  // Mapa completo campo→valor con todos los datos de INTELEC
   const DIRECT_MAP = {
-    'nombre de la empresa':     D.razon_social,
-    'razón social':             D.razon_social,
-    'nif/cif':                  D.cif,
-    'nif':                      D.cif,
-    'cif':                      D.cif,
-    'actividad de la empresa':  D.actividad,
-    'actividad':                D.actividad,
-    'domicilio social':         D.domicilio,
-    'domicilio':                D.domicilio,
-    'dirección':                D.domicilio,
-    'localidad':                D.localidad,
-    'municipio':                D.localidad,
-    'c.p':                      D.cp,
-    'código postal':            D.cp,
-    'provincia':                D.provincia,
-    'teléfono':                 D.telefono,
-    'fax':                      D.fax||D.telefono,
-    'e-mail':                   D.email,
-    'email':                    D.email,
-    'código iban':              D.iban,
-    'iban':                     D.iban,
-    'código banco':             D.banco,
-    'banco':                    D.banco,
-    'cuenta sucursal':          (D.sucursal||'')+(D.dc?'-'+D.dc:''),
-    'cuenta corriente':         D.iban,
-    'interlocutor':             D.rep_nombre||D.admin_nombre,
-    'cumplimentado por':        D.rep_nombre,
-    'cargo / función':          D.actividad,
-    'cargo':                    D.rep_cargo||'Representante Legal',
-    'cnae':                     D.cnae,
-    'iae':                      D.iae,
-    'n.i.f':                    D.cif,
-    'nombre empresa':           D.razon_social,
+    // Empresa
+    'nombre de la empresa': D.razon_social, 'razón social': D.razon_social,
+    'empresa': D.razon_social, 'denominación social': D.razon_social,
+    'nif/cif': D.cif, 'cif/nif': D.cif, 'nif': D.cif, 'cif': D.cif,
+    'n.i.f': D.cif, 'c.i.f': D.cif, 'n.i.f.': D.cif,
+    'actividad de la empresa': D.actividad, 'actividad': D.actividad,
+    // Domicilio
+    'domicilio social': D.domicilio, 'domicilio': D.domicilio,
+    'dirección': D.domicilio, 'direccion': D.domicilio,
+    'calle': D.domicilio, 'dirección fiscal': D.domicilio,
+    'código postal': D.cp, 'c.p': D.cp, 'c.p.': D.cp, 'cp': D.cp,
+    'población': D.localidad, 'localidad': D.localidad, 'ciudad': D.localidad,
+    'municipio': D.localidad,
+    'provincia': D.provincia,
+    'país': D.pais||'España', 'pais': D.pais||'España',
+    // Contacto
+    'teléfono': D.telefono, 'telefono': D.telefono, 'tel': D.telefono,
+    'tel.': D.telefono, 'tlf': D.telefono, 'tlf.': D.telefono,
+    'fax': D.fax||D.telefono,
+    'web': D.web, 'página web': D.web, 'website': D.web,
+    'e-mail': D.email_contabilidad||D.email,
+    'email': D.email_contabilidad||D.email,
+    'correo electrónico': D.email_contabilidad||D.email,
+    'correo electrónico para envío de facturas': D.email_contabilidad,
+    'email facturas': D.email_contabilidad,
+    // Envío
+    'dirección de envío de material': D.direccion_envio||D.domicilio,
+    'dirección de envío': D.direccion_envio||D.domicilio,
+    'dirección envío': D.direccion_envio||D.domicilio,
+    'envío': D.direccion_envio||D.domicilio,
+    // Banco
+    'código iban': D.iban, 'iban': D.iban, 'cuenta corriente': D.iban,
+    'n.º cuenta': D.iban, 'número cuenta': D.iban,
+    'entidad bancaria': D.banco, 'banco': D.banco, 'entidad': D.banco,
+    // Pago
+    'plazo de pago': D.plazo_pago||'60',
+    'plazo': D.plazo_pago||'60',
+    'días de pago': D.dias_pago||'7 y 23',
+    'dias de pago': D.dias_pago||'7 y 23',
+    'día de pago': D.dias_pago||'7 y 23',
+    'forma de pago': 'Transferencia',
+    // Representante
+    'representante legal': D.rep_nombre,
+    'representante': D.rep_nombre,
+    'nombre representante': D.rep_nombre,
+    'dni representante': D.rep_dni,
+    'cargo representante': D.rep_cargo,
+    'cargo': D.rep_cargo,
+    // Genérico (sin contexto de sección)
+    'nombre empresa': D.razon_social,
+    'interlocutor': D.rep_nombre||D.admin_nombre,
+    'cumplimentado por': D.rep_nombre,
+    'cnae': D.cnae, 'iae': D.iae,
+    // Registros
+    'registro mercantil': D.reg_mercantil,
+    'n.º s.s.': D.seg_social, 'seg. social': D.seg_social,
+    'rea': D.rea,
+    'seguro': D.seguro_poliza ? (D.seguro_compania+' - Póliza '+D.seguro_poliza) : '',
+    'póliza': D.seguro_poliza,
+    'servicio prevención': D.servicio_prevencion,
   };
+
+  // Mapa con contexto de sección (para campos genéricos como "Nombre", "Teléfono", "E-mail")
+  const SECTION_MAP = {
+    // Sección Administración/Facturación
+    admin: {
+      nombre: D.admin_nombre||'ISABEL HERNANDEZ MORALES',
+      teléfono: D.admin_telefono||D.telefono,
+      'e-mail': D.admin_email_personal||D.admin_email||D.email_contabilidad,
+      email: D.admin_email_personal||D.admin_email||D.email_contabilidad,
+    },
+    // Sección Técnico
+    tecnico: {
+      nombre: D.tecnico_nombre||'JAVIER CARRASCO',
+      teléfono: D.tecnico_telefono||D.telefono,
+      'e-mail': D.tecnico_email||'',
+      email: D.tecnico_email||'',
+    },
+    // Sección Compras
+    compras: {
+      nombre: D.compras_nombre||'FERNANDO APARICIO',
+      teléfono: D.compras_telefono||D.telefono,
+      'e-mail': D.compras_email||'',
+      email: D.compras_email||'',
+    },
+  };
+
+  // Detecta qué sección activa hay por palabras clave en el texto de la hoja
+  function detectSection(v){
+    const low=v.toLowerCase();
+    if(low.includes('administrac')||low.includes('facturaci')) return 'admin';
+    if(low.includes('técnico')||low.includes('tecnico')) return 'tecnico';
+    if(low.includes('compras')||low.includes('logística')) return 'compras';
+    return null;
+  }
 
   wb.SheetNames.forEach(sn => {
     const ws = wb.Sheets[sn];
@@ -1207,6 +1374,29 @@ async function fillXlsx(buf,fields){
         if(r!==m.s.r||c!==m.s.c) slaveCells.add(XLSX.utils.encode_cell({r,c}));
     });
 
+    // Hacer un primer pase para detectar la posición de cada sección
+    const sectionRows = {}; // row → section name
+    for(let r=rng.s.r;r<=rng.e.r;r++){
+      for(let c=rng.s.c;c<=rng.e.c;c++){
+        const addr=XLSX.utils.encode_cell({r,c});
+        if(slaveCells.has(addr)) continue;
+        const cell=ws[addr];
+        if(!cell||!cell.v) continue;
+        const s=detectSection(String(cell.v));
+        if(s) sectionRows[r]=s;
+      }
+    }
+
+    // Función para obtener la sección activa en la fila r
+    function activeSection(row){
+      let cur=null; let curRow=-1;
+      for(const [sr,sec] of Object.entries(sectionRows)){
+        if(parseInt(sr)<=row && parseInt(sr)>curRow){cur=sec;curRow=parseInt(sr);}
+      }
+      return cur;
+    }
+
+    // Segundo pase: rellenar
     for(let r=rng.s.r;r<=rng.e.r;r++){
       for(let c=rng.s.c;c<=rng.e.c;c++){
         const addr=XLSX.utils.encode_cell({r,c});
@@ -1216,15 +1406,43 @@ async function fillXlsx(buf,fields){
         const v=String(cell.v).trim();
         if(!v) continue;
         const vLow=v.toLowerCase().replace(/[:\s]+$/,'').trim();
+
+        // 1. Buscar en DIRECT_MAP (coincidencia exacta o parcial)
         let valor=DIRECT_MAP[vLow];
         if(!valor){
           for(const [k,val] of Object.entries(DIRECT_MAP)){
-            if(val&&k.length>=3&&vLow.startsWith(k.substring(0,Math.min(k.length,10)))){valor=val;break;}
+            if(val&&k.length>=4&&vLow===k) {valor=val;break;}
           }
         }
+        if(!valor){
+          // Coincidencia por prefijo largo
+          for(const [k,val] of Object.entries(DIRECT_MAP)){
+            if(val&&k.length>=6&&(vLow.startsWith(k)||k.startsWith(vLow.substring(0,Math.min(vLow.length,15))))){valor=val;break;}
+          }
+        }
+
+        // 2. Si no hay en DIRECT_MAP, buscar en SECTION_MAP con contexto
+        if(!valor){
+          const sec=activeSection(r);
+          if(sec && SECTION_MAP[sec]){
+            valor=SECTION_MAP[sec][vLow]||SECTION_MAP[sec][vLow.replace('teléfono','teléfono')];
+          }
+        }
+
         if(valor){
-          const lbl=v.replace(/[:\s]+$/,'');
-          ws[addr]={v:lbl+': '+valor,t:'s',w:lbl+': '+valor};
+          // Escribir SOLO en la celda de valor (columna siguiente vacía) si existe,
+          // o reescribir esta celda con "Label: valor"
+          const nextAddr=XLSX.utils.encode_cell({r,c:c+1});
+          const nextCell=ws[nextAddr];
+          const isMasterNext = !slaveCells.has(nextAddr);
+          if(isMasterNext && (!nextCell||!nextCell.v||nextCell.v==='')){
+            // Escribir en celda adyacente vacía (mantiene el formato original)
+            ws[nextAddr]={v:valor,t:'s',w:valor};
+          } else {
+            // Reescribir con "Label: valor"
+            const lbl=v.replace(/[:\s]+$/,'');
+            ws[addr]={v:lbl+': '+valor,t:'s',w:lbl+': '+valor};
+          }
         }
       }
     }
