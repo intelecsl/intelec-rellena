@@ -186,7 +186,7 @@ body{font-family:var(--f);background:var(--bg);color:var(--text);font-size:13px;
     <div class="ht">Rellena Formularios</div>
     <div class="hs" id="hSub">Conectando a SharePoint...</div>
   </div>
-  <div class="ver">v5.20</div>
+  <div class="ver">v5.21</div>
 </div>
 
 <!-- STEPS -->
@@ -789,61 +789,6 @@ async function exTxt(buf,type){
     // Numerar cada placeholder para que Claude vea el contexto
     let n=0;
     let replaced=0;
-  // PASO 0: Rellenar celdas vacías de tabla por label (formularios tipo Eurofesa/ficha)
-  // Funciona para DOCXs con tabla label→celda vacía (sin SDTs ni placeholders)
-  {
-    const tableMap={
-      'nombre/razon social': eX(DATOS.razon_social||''),
-      'nombre/razón social': eX(DATOS.razon_social||''),
-      'nif/cif':  eX(DATOS.cif||''),
-      'cif/nif':  eX(DATOS.cif||''),
-      'nif':      eX(DATOS.cif||''),
-      'cif':      eX(DATOS.cif||''),
-      'direccion':   eX(DATOS.domicilio||''),
-      'dirección':   eX(DATOS.domicilio||''),
-      'poblacion':   eX(DATOS.localidad||''),
-      'población':   eX(DATOS.localidad||''),
-      'cp':       eX(DATOS.cp||''),
-      'provincia':eX(DATOS.provincia||''),
-      'telefono': eX(DATOS.telefono||''),
-      'teléfono': eX(DATOS.telefono||''),
-      'persona contacto': eX(DATOS.admin_nombre||''),
-      'cargo':    eX(DATOS.admin_cargo||DATOS.rep_cargo||''),
-      'mail':     eX(DATOS.email_contabilidad||DATOS.email||''),
-      'e-mail':   eX(DATOS.email_contabilidad||DATOS.email||''),
-      'email':    eX(DATOS.email_contabilidad||DATOS.email||''),
-      'iban':     eX(DATOS.iban_fmt||DATOS.iban||''),
-      'medio':    'Transferencia',
-      'plazo (días)': eX(DATOS.plazo_pago||'60'),
-      'plazo':    eX(DATOS.plazo_pago||'60'),
-      'día/s fijo/s': eX(DATOS.dias_pago||'7 y 23'),
-      'nombre representante': eX(DATOS.rep_nombre||''),
-      'representante': eX(DATOS.rep_nombre||''),
-      'swift bic': eX(DATOS.swift_bic||''),
-    };
-    // Procesar cada fila de tabla: label → celda vacía adyacente
-    x=x.replace(/<w:tr[ >][\s\S]*?<\/w:tr>/g,rowXml=>{
-      const cells=[...rowXml.matchAll(/<w:tc>[\s\S]*?<\/w:tc>/g)].map(m=>({text:m[0].match(/<w:t[^>]*>([^<]+)<\/w:t>/g)?.map(t=>t.replace(/<[^>]+>/g,'')).join('').trim()||'',xml:m[0],idx:m.index,end:m.index+m[0].length}));
-      let res=rowXml;let off=0;
-      for(let i=0;i<cells.length-1;i++){
-        const key=cells[i].text.toLowerCase().trim();
-        const val=tableMap[key];
-        if(val&&!cells[i+1].text){
-          // Insertar valor en la celda vacía adyacente
-          const oldCell=cells[i+1].xml;
-          const newCell=oldCell.replace(/<\/w:p>/,'<w:r><w:t xml:space="preserve">'+val+'</w:t></w:r></w:p>');
-          const pos=cells[i+1].idx+off;
-          res=res.substring(0,pos)+newCell+res.substring(pos+oldCell.length);
-          off+=newCell.length-oldCell.length;
-          i++;// saltar la celda que acabamos de rellenar
-        }
-      }
-      return res;
-    });
-    const tableReplaced=(x.match(/<w:t[^>]*>[^<]+<\/w:t>/g)||[]).filter(t=>Object.values(tableMap).some(v=>v&&t.includes(v))).length;
-    if(tableReplaced>0){replaced+=tableReplaced;setPg(45,'Tabla rellenada: '+tableReplaced+' campos');}
-  }
-
   const MARKER='Haga clic aquí para escribir texto.';
     while(x.includes(MARKER)){ n++; x=x.replace(MARKER,'[CAMPO_'+n+']'); }
     return '[TOTAL_CAMPOS:'+n+']\n'+x.substring(0,12000);
@@ -1031,6 +976,7 @@ async function fillDocx(buf,fields){
   let x = new TextDecoder('utf-8').decode(await zz.file('word/document.xml').async('uint8array'));
   setPg(35,'Rellenando...');
 
+  let replaced=0;
   // PASO 0: Rellenar celdas vacías de tabla por label (formularios tipo Eurofesa/ficha)
   // Funciona para DOCXs con tabla label→celda vacía (sin SDTs ni placeholders)
   {
@@ -1083,7 +1029,7 @@ async function fillDocx(buf,fields){
       return res;
     });
     const tableReplaced=(x.match(/<w:t[^>]*>[^<]+<\/w:t>/g)||[]).filter(t=>Object.values(tableMap).some(v=>v&&t.includes(v))).length;
-    if(tableReplaced>0){replaced+=tableReplaced;setPg(45,'Tabla rellenada: '+tableReplaced+' campos');}
+    if(tableReplaced>0) setPg(45,'Tabla rellenada: '+tableReplaced+' campos');
   }
 
   const MARKER='Haga clic aqu\u00ed para escribir texto.';
