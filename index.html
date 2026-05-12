@@ -788,7 +788,8 @@ async function exTxt(buf,type){
        .trim();
     // Numerar cada placeholder para que Claude vea el contexto
     let n=0;
-    // PASO 0: Rellenar celdas vacías de tabla por label (formularios tipo Eurofesa/ficha)
+    let replaced=0;
+  // PASO 0: Rellenar celdas vacías de tabla por label (formularios tipo Eurofesa/ficha)
   // Funciona para DOCXs con tabla label→celda vacía (sin SDTs ni placeholders)
   {
     const tableMap={
@@ -1087,7 +1088,6 @@ async function fillDocx(buf,fields){
 
   const MARKER='Haga clic aqu\u00ed para escribir texto.';
   const valores=fields.filter(f=>f.valor&&f.valor.trim()&&f.valor.trim()!=='.'&&!f.skip).map(f=>f.valor);
-  let replaced=0;
 
   function findRunStart(s,bp){
     let i=bp;
