@@ -186,7 +186,7 @@ body{font-family:var(--f);background:var(--bg);color:var(--text);font-size:13px;
     <div class="ht">Rellena Formularios</div>
     <div class="hs" id="hSub">Conectando a SharePoint...</div>
   </div>
-  <div class="ver">v5.24</div>
+  <div class="ver">v5.25</div>
 </div>
 
 <!-- STEPS -->
@@ -715,7 +715,7 @@ async function analyze(rolIntelec=null){
       document.getElementById('anlz').style.display='none';
       document.getElementById('rolSel').style.display='block';
       document.getElementById('fmap').style.display='block';
-      const opts=result.opciones||['Primera parte','Segunda parte'];
+      const opts=result.opciones||['Cliente (empresa compradora)','Primera parte (contratante)','Segunda parte (contratista/proveedor)','Empresa mantenedora','Proveedor/Suministrador'];
       const container=document.getElementById('rolOpts');
       container.innerHTML='';
       opts.forEach(op=>{
@@ -936,6 +936,7 @@ async function callClaude(txt, fileType='docx', rolIntelec=null){
         '- Para "FECHA" usa la fecha actual: '+new Date().toLocaleDateString('es-ES'),
         '- Para "FACTURA DIGITAL" pon "SI"',
         '- Para "FORMA DE PAGO" pon el medio de pago (ej: Transferencia)',
+        '- Si INTELEC es CLIENTE: rellena todos sus datos como empresa compradora',
         '- Para "PERSONA DE CONTACTO COMPRAS" usa el contacto de compras',
         '- Para "PERSONA DE CONTACTO ADMON" usa el contacto de administración',
         '- Devuelve EXACTAMENTE '+total+' campos en el orden CAMPO_1 al CAMPO_'+total,
@@ -950,7 +951,7 @@ async function callClaude(txt, fileType='docx', rolIntelec=null){
         cleanTxt,
         '\nINSTRUCCIONES:',
         '- Si UNA parte ya tiene datos de OTRA empresa: rellena SOLO los [CAMPO_N] de INTELEC',
-        '- Si AMBAS partes están vacías y no sabes cuál es INTELEC: devuelve {"rol_necesario":true,"opciones":["Primera parte (contratante)","Segunda parte (contratista/proveedor)","Empresa mantenedora","Empresa mantenida"]}',
+        '- Si AMBAS partes están vacías y no sabes cuál es INTELEC: devuelve {"rol_necesario":true,"opciones":["Cliente (empresa compradora)","Primera parte (contratante)","Segunda parte (contratista/proveedor)","Empresa mantenedora","Empresa mantenida","Proveedor/Suministrador"]}',
         '- Si sabes qué campos son de INTELEC: devuelve {"campos":[{"posicion":N,"label":"...","valor":"...","clave_dato":"..."}]}',
         '- Devuelve EXACTAMENTE '+total+' campos en orden de posición',
         '- Solo JSON, nada más'
