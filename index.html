@@ -186,7 +186,7 @@ body{font-family:var(--f);background:var(--bg);color:var(--text);font-size:13px;
     <div class="ht">Rellena Formularios</div>
     <div class="hs" id="hSub">Conectando a SharePoint...</div>
   </div>
-  <div class="ver">v5.22</div>
+  <div class="ver">v5.23</div>
 </div>
 
 <!-- STEPS -->
@@ -1032,7 +1032,33 @@ async function fillDocx(buf,fields){
     if(tableReplaced>0) setPg(45,'Tabla rellenada: '+tableReplaced+' campos');
   }
 
-  const MARKER='Haga clic aqu\u00ed para escribir texto.';
+  // PASO BRACKET: [CAMPO] placeholders (cartas, certificados, contratos con marcadores)
+  {
+    const BM={
+      '[NOMBRE DE LA EMPRESA DESTINATARIA]':eX(DATOS.razon_social||''),
+      '[CIF DE LA EMPRESA DESTINATARIA]':eX(DATOS.cif||''),
+      '[DOMICILIO DE LA EMPRESA DESTINATARIA]':eX([DATOS.domicilio,DATOS.cp,DATOS.localidad,DATOS.provincia].filter(Boolean).join(', ')),
+      '[NOMBRE Y APELLIDOS]':eX(DATOS.rep_nombre||''),
+      '[CARGO]':eX(DATOS.rep_cargo||'Representante Legal'),
+      '[DNI]':eX(DATOS.rep_dni||''),
+      '[SELLO]':'',
+      '[FECHA]':eX(new Date().toLocaleDateString('es-ES',{day:'numeric',month:'long',year:'numeric'})),
+      '[NIF]':eX(DATOS.cif||''),'[EMPRESA]':eX(DATOS.razon_social||''),
+      '[DOMICILIO]':eX(DATOS.domicilio||''),'[TELÉFONO]':eX(DATOS.telefono||''),
+      '[EMAIL]':eX(DATOS.email_contabilidad||DATOS.email||''),
+      '[IBAN]':eX(DATOS.iban_fmt||DATOS.iban||''),
+    };
+    (fields||[]).forEach(f=>{if(f.original&&/^\[.+\]$/.test((f.original||'').trim())&&f.valor)BM[f.original.trim()]=eX(f.valor);});
+    let bc=0;
+    for(const[k,v]of Object.entries(BM)){
+      if(!v)continue;
+      const ke=k.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      while(x.includes(ke)){x=x.replace(ke,v);bc++;}
+    }
+    if(bc>0){replaced+=bc;setPg(48,'Placeholders [CAMPO]: '+bc);}
+  }
+
+    const MARKER='Haga clic aqu\u00ed para escribir texto.';
   const valores=fields.filter(f=>f.valor&&f.valor.trim()&&f.valor.trim()!=='.'&&!f.skip).map(f=>f.valor);
 
   function findRunStart(s,bp){
@@ -1404,14 +1430,33 @@ async function fillPdf(buf,fields){
   const doc=await PDFDocument.load(u8,{ignoreEncryption:true});
   const font=await doc.embedFont(StandardFonts.Helvetica);
   let filled=0;
-  // 1) AcroForm
+  // 1) AcroForm — nombre exacto o posicional para campos "untitled"
   try{
     const form=doc.getForm();
     const ff=form.getFields();
     if(ff.length>0){
-      for(const f of fields){
-        if(!f.valor||f.skip) continue;
+      const active=fields.filter(f=>f.valor&&!f.skip);
+      // Intentar por nombre primero
+      for(const f of active){
         try{const fld=form.getTextField(f.original||f.label);if(fld){fld.setText(f.valor);filled++;}}catch(e){}
+      }
+      // Si falla (campos "untitled"), ordenar por posición y rellenar posicionalmente
+      if(filled<2){
+        filled=0;
+        const positioned=[];
+        for(const fld of ff){
+          try{
+            const tf=form.getTextField(fld.getName());
+            const w=tf.acroField.getWidgets();
+            const r=w.length>0?w[0].getRectangle():{x:0,y:0};
+            positioned.push({tf,y:r.y,x:r.x});
+          }catch(e){}
+        }
+        // Ordenar: mayor Y primero (PDF: Y=0 abajo), luego X izquierda-derecha
+        positioned.sort((a,b)=>b.y-a.y||a.x-b.x);
+        for(let i=0;i<Math.min(positioned.length,active.length);i++){
+          try{positioned[i].tf.setText(active[i].valor);filled++;}catch(e){}
+        }
       }
     }
   }catch(e){}
