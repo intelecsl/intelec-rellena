@@ -186,7 +186,7 @@ body{font-family:var(--f);background:var(--bg);color:var(--text);font-size:13px;
     <div class="ht">Rellena Formularios</div>
     <div class="hs" id="hSub">Conectando a SharePoint...</div>
   </div>
-  <div class="ver">v5.23</div>
+  <div class="ver">v5.24</div>
 </div>
 
 <!-- STEPS -->
@@ -844,16 +844,58 @@ async function exTxt(buf,type){
             if(lineStr) lines.push('[p'+pn+',y'+y+'] '+lineStr);
           });
         }
+        // Try to also get AcroForm field positions and annotate the text
+        try{
+          const {PDFDocument}=PDFLib;
+          const doc2=await PDFDocument.load(u8,{ignoreEncryption:true});
+          const form2=doc2.getForm();
+          const ff2=form2.getFields();
+          if(ff2.length>0){
+            // Get fields sorted by position
+            const fldPos2=[];
+            for(const fld of ff2){
+              try{
+                const w=fld.acroField.getWidgets();
+                const r=w.length>0?w[0].getRectangle():{x:0,y:0,height:20};
+                const pageH=doc2.getPages()[0]?.getSize().height||842;
+                fldPos2.push({name:fld.getName(),yPDF:r.y,x:r.x,yTop:pageH-r.y-r.height});
+              }catch(e){}
+            }
+            fldPos2.sort((a,b)=>a.yTop-b.yTop||a.x-b.x);
+            // Convert PDF yPDF to page-text y coords (rough approximation: scale)
+            // Find min/max PDF y vs text y to calibrate
+            const allY=lines.map(l=>{const m=l.match(/\[p1,y(\d+)\]/);return m?parseInt(m[1]):null;}).filter(Boolean);
+            const minTextY=allY.length?Math.min(...allY):0;
+            const maxTextY=allY.length?Math.max(...allY):800;
+            // Annotate: add CAMPO markers
+            const fieldCount=fldPos2.length;
+            const result2=lines.join('\n')+'\n[TOTAL_CAMPOS:'+fieldCount+']\n// Campos PDF ordenados (arriba→abajo):\n'+
+              fldPos2.map((f,i)=>`CAMPO_${i+1}_LABEL: ${f.name}`).join('\n');
+            return result2.substring(0,12000);
+          }
+        }catch(e2){}
         return lines.join('\n').substring(0,12000);
       }catch(e){return '[PDF error: '+e.message+']';}
     }
-    // Fallback: campos AcroForm
+    // Fallback: campos AcroForm con posiciones
     try{
       const {PDFDocument}=PDFLib;
       const doc=await PDFDocument.load(u8,{ignoreEncryption:true});
       const form=doc.getForm();
-      const names=form.getFields().map(f=>f.getName());
-      return names.length>0?names.join('\n'):'[PDF sin campos AcroForm]';
+      const ff=form.getFields();
+      if(ff.length===0) return '[PDF sin campos AcroForm]';
+      // Obtener posiciones de cada campo
+      const fldPos=[];
+      for(const fld of ff){
+        try{
+          const w=fld.acroField.getWidgets();
+          const r=w.length>0?w[0].getRectangle():{x:0,y:0,width:100,height:20};
+          fldPos.push({name:fld.getName(),y:r.y,x:r.x,h:r.height,page:0});
+        }catch(e){fldPos.push({name:fld.getName(),y:0,x:0,h:20,page:0});}
+      }
+      fldPos.sort((a,b)=>b.y-a.y||a.x-b.x);
+      const lines=fldPos.map((f,i)=>`CAMPO_${i+1}: ${f.name} (x=${Math.round(f.x)},y=${Math.round(f.y)})`);
+      return '[TOTAL_CAMPOS:'+fldPos.length+']\n'+lines.join('\n');
     }catch(e){return '[PDF: '+e.message+']';}
   }
   return '';
@@ -875,19 +917,45 @@ async function callClaude(txt, fileType='docx', rolIntelec=null){
     const total=totalMatch?parseInt(totalMatch[1]):0;
     const cleanTxt=txt.replace(/\[TOTAL_CAMPOS:\d+\]\n?/,'');
     const rolCtx=rolIntelec?'\nROL DE INTELEC: '+rolIntelec:'';
-    userPrompt=[
-      'DATOS EMPRESA INTELEC S.L.:',
-      JSON.stringify(empresaInfo,null,2),
-      rolCtx,
-      '\nCONTRATO ('+total+' huecos marcados [CAMPO_N]):',
-      cleanTxt,
-      '\nINSTRUCCIONES:',
-      '- Si UNA parte ya tiene datos de OTRA empresa: rellena SOLO los [CAMPO_N] de INTELEC',
-      '- Si AMBAS partes están vacías y no sabes cuál es INTELEC: devuelve {"rol_necesario":true,"opciones":["Primera parte (contratante)","Segunda parte (contratista/proveedor)","Empresa mantenedora","Empresa mantenida"]}',
-      '- Si sabes qué campos son de INTELEC: devuelve {"campos":[{"posicion":N,"label":"...","valor":"...","clave_dato":"..."}]}',
-      '- Devuelve EXACTAMENTE '+total+' campos en orden de posición',
-      '- Solo JSON, nada más'
-    ].join('\n');
+
+    // PDF con campos AcroForm: prompt específico que entiende la tabla del formulario
+    const hasCampoLabels=cleanTxt.includes('CAMPO_1_LABEL:') || cleanTxt.includes('CAMPO_1:');
+    if(fileType==='pdf' && total>0){
+      userPrompt=[
+        'DATOS EMPRESA INTELEC S.L.:',
+        JSON.stringify(empresaInfo,null,2),
+        rolCtx,
+        '\nFORMULARIO PDF ('+total+' campos a rellenar):',
+        '// El formulario tiene campos ordenados de arriba a abajo.',
+        '// Lee las ETIQUETAS del formulario en el texto (CIF, RAZON SOCIAL, DOMICILIO, etc.)',
+        '// y asigna el valor CORRECTO de DATOS INTELEC a cada campo en orden.',
+        cleanTxt,
+        '\nINSTRUCCIONES CRÍTICAS:',
+        '- Cada CAMPO_N corresponde al campo físico del formulario, de arriba abajo',
+        '- Lee el texto del formulario para saber qué etiqueta corresponde a cada CAMPO_N',
+        '- Para "FECHA" usa la fecha actual: '+new Date().toLocaleDateString('es-ES'),
+        '- Para "FACTURA DIGITAL" pon "SI"',
+        '- Para "FORMA DE PAGO" pon el medio de pago (ej: Transferencia)',
+        '- Para "PERSONA DE CONTACTO COMPRAS" usa el contacto de compras',
+        '- Para "PERSONA DE CONTACTO ADMON" usa el contacto de administración',
+        '- Devuelve EXACTAMENTE '+total+' campos en el orden CAMPO_1 al CAMPO_'+total,
+        '- {"campos":[{"posicion":1,"label":"FECHA","valor":"..."},{"posicion":2,"label":"CIF","valor":"..."},...]}'
+      ].join('\n');
+    } else {
+      userPrompt=[
+        'DATOS EMPRESA INTELEC S.L.:',
+        JSON.stringify(empresaInfo,null,2),
+        rolCtx,
+        '\nCONTRATO ('+total+' huecos marcados [CAMPO_N]):',
+        cleanTxt,
+        '\nINSTRUCCIONES:',
+        '- Si UNA parte ya tiene datos de OTRA empresa: rellena SOLO los [CAMPO_N] de INTELEC',
+        '- Si AMBAS partes están vacías y no sabes cuál es INTELEC: devuelve {"rol_necesario":true,"opciones":["Primera parte (contratante)","Segunda parte (contratista/proveedor)","Empresa mantenedora","Empresa mantenida"]}',
+        '- Si sabes qué campos son de INTELEC: devuelve {"campos":[{"posicion":N,"label":"...","valor":"...","clave_dato":"..."}]}',
+        '- Devuelve EXACTAMENTE '+total+' campos en orden de posición',
+        '- Solo JSON, nada más'
+      ].join('\n');
+    }
   }
 
   const r=await fetch('https://api.anthropic.com/v1/messages',{
