@@ -186,7 +186,7 @@ body{font-family:var(--f);background:var(--bg);color:var(--text);font-size:13px;
     <div class="ht">Rellena Formularios</div>
     <div class="hs" id="hSub">Conectando a SharePoint...</div>
   </div>
-  <div class="ver">v5.25</div>
+  <div class="ver">v5.26</div>
 </div>
 
 <!-- STEPS -->
@@ -1064,10 +1064,17 @@ async function fillDocx(buf,fields){
       'provincia':eX(DATOS.provincia||''),
       'telefono': eX(DATOS.telefono||''),
       'teléfono': eX(DATOS.telefono||''),
+      'persona contacto compras': eX(DATOS.compras_nombre||''),
+      'persona de contacto compras': eX(DATOS.compras_nombre||''),
+      'persona contacto admon': eX(DATOS.admin_nombre||''),
+      'persona de contacto admon.contabilidad': eX(DATOS.admin_nombre||''),
       'persona contacto': eX(DATOS.admin_nombre||''),
       'cargo':    eX(DATOS.admin_cargo||DATOS.rep_cargo||''),
       'mail':     eX(DATOS.email_contabilidad||DATOS.email||''),
       'e-mail':   eX(DATOS.email_contabilidad||DATOS.email||''),
+      'e-mail de compras': eX(DATOS.compras_email||''),
+      'e-mail de envío de facturas': eX(DATOS.email_contabilidad||''),
+      'e-mail de admon. contabilidad': eX(DATOS.email_contabilidad||''),
       'email':    eX(DATOS.email_contabilidad||DATOS.email||''),
       'iban':     eX(DATOS.iban_fmt||DATOS.iban||''),
       'medio':    'Transferencia',
