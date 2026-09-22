@@ -186,7 +186,7 @@ body{font-family:var(--f);background:var(--bg);color:var(--text);font-size:13px;
     <div class="ht">Rellena Formularios</div>
     <div class="hs" id="hSub">Conectando a SharePoint...</div>
   </div>
-  <div class="ver">v5.27</div>
+  <div class="ver">v5.28</div>
 </div>
 
 <!-- STEPS -->
@@ -791,7 +791,15 @@ async function exTxt(buf,type){
     let replaced=0;
   const MARKER='Haga clic aquí para escribir texto.';
     while(x.includes(MARKER)){ n++; x=x.replace(MARKER,'[CAMPO_'+n+']'); }
-    return '[TOTAL_CAMPOS:'+n+']\n'+x.substring(0,12000);
+    // IMPORTANTE: en contratos largos, la firma/fecha suele estar al FINAL del
+    // documento. Si truncamos solo por el principio, Claude nunca ve esa parte
+    // y esos huecos quedan sin detectar. Si el texto no cabe entero, nos
+    // quedamos con el principio (contexto/roles) + el final (firma/fecha).
+    let body=x;
+    if(body.length>16000){
+      body=body.substring(0,12000)+'\n\n[... texto intermedio omitido por longitud ...]\n\n'+body.substring(body.length-4000);
+    }
+    return '[TOTAL_CAMPOS:'+n+']\n'+body;
   }
 
   if(type==='xlsx'){
@@ -943,9 +951,11 @@ async function callClaude(txt, fileType='docx', rolIntelec=null){
         '- {"campos":[{"posicion":1,"label":"FECHA","valor":"..."},{"posicion":2,"label":"CIF","valor":"..."},...]}'
       ].join('\n');
     } else {
+      const hoy=new Date().toLocaleDateString('es-ES',{day:'numeric',month:'long',year:'numeric'});
       userPrompt=[
         'DATOS EMPRESA INTELEC S.L.:',
         JSON.stringify(empresaInfo,null,2),
+        'FECHA DE HOY: '+hoy,
         rolCtx,
         '\nCONTRATO ('+total+' huecos marcados [CAMPO_N]):',
         cleanTxt,
@@ -953,10 +963,13 @@ async function callClaude(txt, fileType='docx', rolIntelec=null){
         '- Si UNA parte ya tiene datos de OTRA empresa: rellena SOLO los [CAMPO_N] de INTELEC',
         '- Si AMBAS partes están vacías y no sabes cuál es INTELEC: devuelve {"rol_necesario":true,"opciones":["Cliente (empresa compradora)","Primera parte (contratante)","Segunda parte (contratista/proveedor)","Empresa mantenedora","Empresa mantenida","Proveedor/Suministrador"]}',
         '- Para un [CAMPO_N]: devuelve {"posicion":N,"label":"...","valor":"...","clave_dato":"..."}',
-        '- IMPORTANTE: además de los [CAMPO_N], el documento puede tener huecos SIN marcar en forma de corchetes libres (ej: [X], [NOMBRE EMPRESA], [CIF], [_____]) que no aparecen numerados arriba. Si detectas alguno que deba rellenarse con datos de INTELEC, devuélvelo TAMBIÉN como un campo más, añadiendo "buscar" con el texto EXACTO tal cual aparece literalmente en el documento (copiado carácter a carácter, incluidos los corchetes) para poder localizarlo: {"posicion":N,"label":"...","valor":"...","clave_dato":"...","buscar":"[X]"}',
-        '- No inventes ni "completes" corchetes que no son datos de empresa (p.ej. nombres de proyecto, fechas de un evento, texto de redacción alternativa tipo "[o Proveedor]"): esos NO se tocan',
+        '- IMPORTANTE: además de los [CAMPO_N], el documento puede tener huecos SIN marcar en forma de corchetes libres (ej: [X], [NOMBRE EMPRESA], [CIF], [Date], [_____], [Name of the signatory], [Title]) que no aparecen numerados arriba, incluidos los del BLOQUE DE FIRMA al final del documento. Si detectas alguno que deba rellenarse con datos de INTELEC, devuélvelo TAMBIÉN como un campo más, añadiendo "buscar" con el texto EXACTO tal cual aparece literalmente en el documento (copiado carácter a carácter, incluidos los corchetes) para poder localizarlo: {"posicion":N,"label":"...","valor":"...","clave_dato":"...","buscar":"[X]"}',
+        '- FECHA: si hay un hueco de fecha sin fecha concreta especificada en el propio contrato (ej: "On [Date]", "[FECHA]", "a fecha de [___]"), rellénalo con la FECHA DE HOY indicada arriba, salvo que el texto del contrato deje claro que debe ser otra fecha distinta',
+        '- GÉNERO: si hay un hueco de género ligado al representante de INTELEC, como "[his]/[her]", "[he]/[she]", "[Mr.]/[Ms.]", infiere el género por el nombre de pila del representante (rep_nombre) y devuelve SOLO la palabra/opción correcta como "valor" (sin corchetes ni barra ni la otra opción), con "buscar" igual al texto completo tal cual aparece (ej: "buscar":"[his]/[her]", "valor":"his")',
+        '- BLOQUE DE FIRMA: si el nombre y cargo del representante de INTELEC ya aparecen en el bloque de firma como placeholders genéricos (ej: "[Name of the signatory]", "[Title]") en la columna/fila correspondiente a INTELEC, rellénalos también con rep_nombre y rep_cargo',
+        '- No inventes ni "completes" corchetes que NO son datos de INTELEC ni de la firma/fecha (p.ej. nombre del proyecto si es genuinamente desconocido, texto de redacción alternativa tipo "[o Proveedor]" que solo indica una opción de redacción): esos NO se tocan',
         '- Si no hay nada que rellenar (todos los datos de INTELEC ya están puestos en el documento), devuelve {"campos":[]}',
-        '- Devuelve como mínimo los '+total+' campos [CAMPO_N] en orden de posición, más los corchetes libres que detectes',
+        '- Devuelve como mínimo los '+total+' campos [CAMPO_N] en orden de posición, más los corchetes libres que detectes (incluida la firma y la fecha)',
         '- Solo JSON, nada más'
       ].join('\n');
     }
