@@ -186,7 +186,7 @@ body{font-family:var(--f);background:var(--bg);color:var(--text);font-size:13px;
     <div class="ht">Rellena Formularios</div>
     <div class="hs" id="hSub">Conectando a SharePoint...</div>
   </div>
-  <div class="ver">v5.26</div>
+  <div class="ver">v5.27</div>
 </div>
 
 <!-- STEPS -->
@@ -952,8 +952,11 @@ async function callClaude(txt, fileType='docx', rolIntelec=null){
         '\nINSTRUCCIONES:',
         '- Si UNA parte ya tiene datos de OTRA empresa: rellena SOLO los [CAMPO_N] de INTELEC',
         '- Si AMBAS partes están vacías y no sabes cuál es INTELEC: devuelve {"rol_necesario":true,"opciones":["Cliente (empresa compradora)","Primera parte (contratante)","Segunda parte (contratista/proveedor)","Empresa mantenedora","Empresa mantenida","Proveedor/Suministrador"]}',
-        '- Si sabes qué campos son de INTELEC: devuelve {"campos":[{"posicion":N,"label":"...","valor":"...","clave_dato":"..."}]}',
-        '- Devuelve EXACTAMENTE '+total+' campos en orden de posición',
+        '- Para un [CAMPO_N]: devuelve {"posicion":N,"label":"...","valor":"...","clave_dato":"..."}',
+        '- IMPORTANTE: además de los [CAMPO_N], el documento puede tener huecos SIN marcar en forma de corchetes libres (ej: [X], [NOMBRE EMPRESA], [CIF], [_____]) que no aparecen numerados arriba. Si detectas alguno que deba rellenarse con datos de INTELEC, devuélvelo TAMBIÉN como un campo más, añadiendo "buscar" con el texto EXACTO tal cual aparece literalmente en el documento (copiado carácter a carácter, incluidos los corchetes) para poder localizarlo: {"posicion":N,"label":"...","valor":"...","clave_dato":"...","buscar":"[X]"}',
+        '- No inventes ni "completes" corchetes que no son datos de empresa (p.ej. nombres de proyecto, fechas de un evento, texto de redacción alternativa tipo "[o Proveedor]"): esos NO se tocan',
+        '- Si no hay nada que rellenar (todos los datos de INTELEC ya están puestos en el documento), devuelve {"campos":[]}',
+        '- Devuelve como mínimo los '+total+' campos [CAMPO_N] en orden de posición, más los corchetes libres que detectes',
         '- Solo JSON, nada más'
       ].join('\n');
     }
@@ -1038,6 +1041,52 @@ async function fillDoc(){
 }
 
 
+// Reemplaza `search` por `replace` dentro de word/document.xml de forma robusta:
+// reconstruye el texto visible uniendo todos los <w:t> en orden y localiza la
+// coincidencia aunque esté partida entre varios <w:r> (habitual en Word tras
+// ediciones/formato mixto). Devuelve {xml, count}.
+function replaceTextAcrossRuns(xml, search, replace){
+  if(!search) return {xml, count:0};
+  const re=/<w:t([^>]*)>([^<]*)<\/w:t>/g;
+  let m; const runs=[];
+  while((m=re.exec(xml))){ runs.push({attrs:m[1],text:m[2],start:m.index,end:re.lastIndex}); }
+  if(!runs.length) return {xml, count:0};
+  let flat=''; const offsets=[];
+  runs.forEach((r,ri)=>{ for(let k=0;k<r.text.length;k++) offsets.push({runIdx:ri,local:k}); flat+=r.text; });
+  const edits={}; let count=0, pos=0;
+  while(true){
+    const fi=flat.indexOf(search,pos); if(fi<0) break;
+    const fEnd=fi+search.length;
+    for(let gi=fi; gi<fEnd; gi++){
+      const o=offsets[gi];
+      (edits[o.runIdx]=edits[o.runIdx]||[]).push({local:o.local, isFirst:gi===fi});
+    }
+    count++; pos=fEnd;
+  }
+  if(!count) return {xml, count:0};
+  runs.forEach((r,ri)=>{
+    const pts=edits[ri]; if(!pts) return;
+    pts.sort((a,b)=>a.local-b.local);
+    const ranges=[]; let cur=null;
+    pts.forEach(p=>{
+      if(cur && p.local===cur.end){ cur.end=p.local+1; cur.insertHere=cur.insertHere||p.isFirst; }
+      else{ if(cur) ranges.push(cur); cur={start:p.local,end:p.local+1,insertHere:p.isFirst}; }
+    });
+    if(cur) ranges.push(cur);
+    ranges.sort((a,b)=>b.start-a.start);
+    let t=r.text;
+    ranges.forEach(rg=>{ t=t.slice(0,rg.start)+(rg.insertHere?replace:'')+t.slice(rg.end); });
+    r.newText=t;
+  });
+  const modified=runs.filter(r=>r.newText!==undefined).sort((a,b)=>b.start-a.start);
+  let out=xml;
+  modified.forEach(r=>{
+    let attrs=r.attrs;
+    if(!/xml:space=/.test(attrs)) attrs+=' xml:space="preserve"';
+    out=out.slice(0,r.start)+'<w:t'+attrs+'>'+r.newText+'</w:t>'+out.slice(r.end);
+  });
+  return {xml:out, count};
+}
 async function fillDocx(buf,fields){
   setPg(20,'Abriendo DOCX...');
   const u8 = buf instanceof ArrayBuffer ? new Uint8Array(buf) : new Uint8Array(buf.buffer||buf);
@@ -1129,7 +1178,11 @@ async function fillDocx(buf,fields){
     for(const[k,v]of Object.entries(BM)){
       if(!v)continue;
       const ke=k.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-      while(x.includes(ke)){x=x.replace(ke,v);bc++;}
+      // Búsqueda robusta: el placeholder puede venir partido entre varios <w:r>
+      // (formato mixto dentro del mismo corchete), así que reconstruimos el texto
+      // visible antes de buscar, en vez de mirar el XML crudo directamente.
+      const {xml:nx,count}=replaceTextAcrossRuns(x,ke,v);
+      if(count>0){x=nx;bc+=count;}
     }
     if(bc>0){replaced+=bc;setPg(48,'Placeholders [CAMPO]: '+bc);}
   }
